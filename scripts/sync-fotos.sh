@@ -56,6 +56,21 @@ FOTOS_SMB_SUBDIR="${FOTOS_SMB_SUBDIR:-PS_Ficheros/Imagenes}"
 # un sitio y el contenedor montara otro, no habria fotos ni error.
 if [ -z "${FOTOS_DEST:-}" ]; then
     FOTOS_DEST="${FOTOS_HOST_DIR:-./data/fotos}"
+    # Compose expande ~ y ${HOME} en el .env; aqui hay que hacer lo mismo o el
+    # espejo acabaria en un directorio literal "~" que el contenedor no monta.
+    # shellcheck disable=SC2016,SC2088  # ~, $HOME y ${HOME} son patrones literales a proposito
+    case "$FOTOS_DEST" in
+        "~") FOTOS_DEST="$HOME" ;;
+        "~/"*) FOTOS_DEST="$HOME/${FOTOS_DEST#"~/"}" ;;
+        '${HOME}'*) FOTOS_DEST="$HOME${FOTOS_DEST#'${HOME}'}" ;;
+        '$HOME'*) FOTOS_DEST="$HOME${FOTOS_DEST#'$HOME'}" ;;
+    esac
+    case "$FOTOS_DEST" in
+        *'$'* | *'~'*)
+            echo "sync-fotos: FOTOS_HOST_DIR=$FOTOS_DEST usa una expansion que no se interpretar; pon una ruta absoluta" >&2
+            exit 1
+            ;;
+    esac
     case "$FOTOS_DEST" in
         /*) ;;
         *) FOTOS_DEST="$STACK_DIR/${FOTOS_DEST#./}" ;;
@@ -63,23 +78,42 @@ if [ -z "${FOTOS_DEST:-}" ]; then
 fi
 
 # Una sola ejecucion a la vez: la primera copia dura horas y el job diario (o
-# un lanzamiento a mano) no debe solaparse con ella. mkdir es atomico.
-LOCK="${TMPDIR:-/tmp}/psfotos-sync.lock"
+# un lanzamiento a mano) no debe solaparse con ella. mkdir es atomico. Ruta
+# fija y no $TMPDIR: launchd y una shell por ssh ven TMPDIR distintos y no se
+# excluirian. El lock lleva el PID de su dueno: si ese proceso ya no existe
+# (kill -9, apagon), se reclama en vez de dejar el espejo congelado para siempre.
+LOCK="${FOTOS_LOCK:-/tmp/psfotos-sync.lock}"
 if ! mkdir "$LOCK" 2>/dev/null; then
-    echo "sync-fotos: ya hay una sincronizacion en curso ($LOCK). Si no es asi, borra ese directorio." >&2
-    exit 1
+    dueno="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$dueno" ] && kill -0 "$dueno" 2>/dev/null; then
+        echo "sync-fotos: ya hay una sincronizacion en curso (pid $dueno, $LOCK)" >&2
+        exit 1
+    fi
+    echo "sync-fotos: lock huerfano de un proceso que ya no existe (pid ${dueno:-desconocido}); lo reclamo" >&2
+    rm -rf "$LOCK"
+    mkdir "$LOCK"
 fi
+echo "$$" > "$LOCK/pid"
 MOUNT_POINT=""
+RSYNC_PID=""
 cleanup() {
+    # Si nos matan a mitad, el rsync hijo no debe seguir escribiendo sin lock
+    # ni con el share desmontado debajo.
+    if [ -n "$RSYNC_PID" ]; then
+        kill "$RSYNC_PID" 2>/dev/null || true
+        wait "$RSYNC_PID" 2>/dev/null || true
+    fi
     if [ -n "$MOUNT_POINT" ]; then
         umount "$MOUNT_POINT" 2>/dev/null \
             || diskutil unmount force "$MOUNT_POINT" >/dev/null 2>&1 \
             || echo "sync-fotos: no se pudo desmontar $MOUNT_POINT; desmontalo a mano" >&2
         rmdir "$MOUNT_POINT" 2>/dev/null || true
     fi
-    rmdir "$LOCK" 2>/dev/null || true
+    rm -rf "$LOCK"
 }
 trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 if [ -n "${FOTOS_SRC_DIR:-}" ]; then
     SRC="$FOTOS_SRC_DIR"
@@ -92,7 +126,7 @@ fi
 
 contar_fotos() {
     find "$1" -mindepth 1 -maxdepth 1 -type f \
-        \( -name '*.jpg' -o -name '*.JPG' -o -name '*.jpeg' -o -name '*.JPEG' \) 2>/dev/null | wc -l | tr -d ' '
+        \( -name '*.jpg' -o -name '*.JPG' -o -name '*.jpeg' -o -name '*.JPEG' \) | wc -l | tr -d ' '
 }
 
 # GUARD de un directorio. Aborta si el origen no esta, enumera vacio o trae
@@ -111,9 +145,16 @@ guard() {
         exit 1
     fi
     [ -d "$FOTOS_DEST/$d" ] || return 0
-    en_espejo="$(contar_fotos "$FOTOS_DEST/$d")"
+    # Con pipefail, un find que falla a medias tumbaria el script sin decir nada.
+    en_espejo="$(contar_fotos "$FOTOS_DEST/$d")" || {
+        echo "sync-fotos: no se pudo contar $FOTOS_DEST/$d — aborto sin tocar el espejo" >&2
+        exit 1
+    }
     [ "$en_espejo" -gt 0 ] || return 0
-    en_origen="$(contar_fotos "$SRC/$d")"
+    en_origen="$(contar_fotos "$SRC/$d")" || {
+        echo "sync-fotos: no se pudo contar $SRC/$d — aborto sin tocar el espejo" >&2
+        exit 1
+    }
     # Las dos condiciones: mas de un 10 % Y mas de 20 fotos. Sin el suelo
     # absoluto, retirar 2 fotos de un directorio con 15 pararia el job.
     if [ "${FOTOS_ALLOW_SHRINK:-0}" != "1" ] \
@@ -141,7 +182,10 @@ for d in 1 2 3 4; do
         --include='*.jpg' --include='*.JPG' \
         --include='*.jpeg' --include='*.JPEG' \
         --exclude='*' \
-        "$SRC/$d/" "$FOTOS_DEST/$d/"
+        "$SRC/$d/" "$FOTOS_DEST/$d/" &
+    RSYNC_PID=$!
+    wait "$RSYNC_PID"
+    RSYNC_PID=""
     n="$(find "$FOTOS_DEST/$d" -mindepth 1 -maxdepth 1 -type f | wc -l)"
     copiados=$((copiados + n))
 done

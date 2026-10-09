@@ -69,8 +69,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // Se lee como texto para poder medirlo: el endpoint va sin autenticación y
     // Content-Length puede faltar o mentir.
+    const declarado = Number(request.headers.get("content-length") ?? "0");
+    if (declarado > MAX_CUERPO_BYTES) return mal("Cuerpo demasiado grande.");
     const texto = await request.text();
-    if (texto.length > MAX_CUERPO_BYTES) return mal("Cuerpo demasiado grande.");
+    if (Buffer.byteLength(texto) > MAX_CUERPO_BYTES) return mal("Cuerpo demasiado grande.");
     body = JSON.parse(texto);
   } catch {
     return mal("Cuerpo JSON no válido.");

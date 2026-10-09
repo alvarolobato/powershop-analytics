@@ -235,7 +235,8 @@ Notes:
 
 - The mirror is written to `FOTOS_HOST_DIR` from `~/powershop/.env` — the same variable Compose uses for the container mount — defaulting to `~/powershop/data/fotos`. Move the mirror by setting that one variable; do not set `FOTOS_DEST`.
 - If a run aborts with "lista N fotos y el espejo tiene M", the share listed far fewer photos than the mirror holds (more than 10 % and more than 20 fewer). That is the guard against a half-dead share wiping the mirror. If photos really were deleted on the server, run once by hand with `FOTOS_ALLOW_SHRINK=1 bash ~/powershop/scripts/sync-fotos.sh`.
-- Only one sync runs at a time (lock at `$TMPDIR/psfotos-sync.lock`). If a run was killed hard and the next one says "ya hay una sincronizacion en curso", remove that directory.
+- Only one sync runs at a time (lock at `/tmp/psfotos-sync.lock`, holding the owner's PID). A lock left behind by a killed run is reclaimed automatically on the next one.
+- `FOTOS_HOST_DIR` may be relative to `~/powershop`, absolute, or start with `~/` or `${HOME}`; any other variable in it makes the job abort rather than write somewhere Compose would not mount.
 - Freshness is 24 h: a photo uploaded today shows up tomorrow. For 6-hourly runs, turn `StartCalendarInterval` in the plist into an array of four entries.
 - It is a LaunchAgent, so it only runs while the user is logged in. After a reboot with nobody logged in the stack comes back (D-065) but the mirror stops refreshing until someone logs in; `horas` in `/api/health` is how you notice. Accepted in D-068: stale photos are cosmetic, and a LaunchDaemon would have to mount the share and reach Docker Desktop's socket as root.
 - **Is the mirror fresh?** `curl -s localhost:4000/api/health` returns `"fotos": {"last_sync": ..., "horas": ..., "ficheros": ...}`. `horas` well above 24 means the nightly job is failing; look at the log. `"fotos": null` means the container has no mirror configured.

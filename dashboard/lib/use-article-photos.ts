@@ -33,6 +33,7 @@ export interface ArticlePhotos {
 
 const TTL_MS = 10 * 60 * 1000;
 export const MAX_LOTE = 200;
+export const REINTENTO_MS = 15_000;
 const SIN_SLOTS: Slot[] = [];
 
 interface Entrada<T> {
@@ -43,7 +44,7 @@ interface Entrada<T> {
 const cacheCodigos = new Map<string, Entrada<Slot[]>>();
 const cacheRefs = new Map<string, Entrada<FotosDeRef | null>>();
 /** Peticiones en vuelo por clave (`c:` código, `r:` referencia). */
-const enVuelo = new Map<string, Promise<void>>();
+const enVuelo = new Map<string, Promise<boolean>>();
 
 function vigente<T>(cache: Map<string, Entrada<T>>, clave: string): Entrada<T> | undefined {
   const e = cache.get(clave);
@@ -60,7 +61,8 @@ function esSlots(v: unknown): v is Slot[] {
   return Array.isArray(v) && v.every((s) => s === 1 || s === 2 || s === 3 || s === 4);
 }
 
-async function pedirLote(codigos: string[], refs: string[]): Promise<void> {
+/** `true` si el servidor contestó; `false` si hubo que darlo por perdido. */
+async function pedirLote(codigos: string[], refs: string[]): Promise<boolean> {
   const caduca = Date.now() + TTL_MS;
   let porCodigo: Record<string, unknown> = {};
   let porRef: Record<string, unknown> = {};
@@ -84,8 +86,8 @@ async function pedirLote(codigos: string[], refs: string[]): Promise<void> {
   } catch {
     // Sin red o sin servidor: sin fotos.
   }
-  // Un fallo no se cachea: el siguiente montaje vuelve a preguntar.
-  if (!ok) return;
+  // Un fallo no se cachea: el hook lo reintenta.
+  if (!ok) return false;
 
   for (const c of codigos) {
     const slots = porCodigo[c];
@@ -100,11 +102,13 @@ async function pedirLote(codigos: string[], refs: string[]): Promise<void> {
     cacheRefs.set(r, { valor, caduca });
     if (valor) cacheCodigos.set(valor.codigo, { valor: valor.slots, caduca });
   }
+  return true;
 }
 
-/** Resuelve (contra caché, en vuelo o red) todo lo pedido. Nunca rechaza. */
-export async function cargarFotos(codigos: string[], refs: string[]): Promise<void> {
-  const esperas: Promise<void>[] = [];
+/** Resuelve (contra caché, en vuelo o red) todo lo pedido. Nunca rechaza.
+ *  Devuelve `false` si alguna petición falló y quedó algo sin saber. */
+export async function cargarFotos(codigos: string[], refs: string[]): Promise<boolean> {
+  const esperas: Promise<boolean>[] = [];
   const faltanC: string[] = [];
   const faltanR: string[] = [];
 
@@ -134,7 +138,7 @@ export async function cargarFotos(codigos: string[], refs: string[]): Promise<vo
     esperas.push(p);
   }
 
-  await Promise.all(esperas);
+  return (await Promise.all(esperas)).every(Boolean);
 }
 
 /** Solo para tests. */
@@ -169,9 +173,19 @@ export function useArticlePhotos(codigos: string[], refs: string[]): ArticlePhot
     const [cs, rs] = JSON.parse(clave) as [string[], string[]];
     if (cs.length === 0 && rs.length === 0) return;
     let vivo = true;
+    let reintento: ReturnType<typeof setTimeout> | null = null;
     const cargar = () =>
-      void cargarFotos(cs, rs).then(() => {
-        if (vivo) setVersion((v) => v + 1);
+      void cargarFotos(cs, rs).then((ok) => {
+        if (!vivo) return;
+        setVersion((v) => v + 1);
+        // Un 500 o un corte de red al abrir el panel no debe dejarlo sin
+        // indicadores hasta la revalidación de los 10 minutos.
+        if (!ok && reintento === null) {
+          reintento = setTimeout(() => {
+            reintento = null;
+            cargar();
+          }, REINTENTO_MS);
+        }
       });
     cargar();
     // Un panel abierto todo el día se entera de las fotos nuevas (y de las
@@ -180,6 +194,7 @@ export function useArticlePhotos(codigos: string[], refs: string[]): ArticlePhot
     return () => {
       vivo = false;
       clearInterval(revalidar);
+      if (reintento !== null) clearTimeout(reintento);
     };
   }, [clave]);
 

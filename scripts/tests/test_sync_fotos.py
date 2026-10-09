@@ -23,8 +23,8 @@ def _run(src: pathlib.Path, dest: pathlib.Path, **extra):
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(dest.parent),
-        # El lock vive en TMPDIR: cada test el suyo.
-        "TMPDIR": str(dest.parent),
+        # Cada test con su propio lock.
+        "FOTOS_LOCK": str(dest.parent / "psfotos-sync.lock"),
         "FOTOS_SRC_DIR": str(src),
         "FOTOS_DEST": str(dest),
         # Que no lea el .env real de la maquina.
@@ -109,7 +109,7 @@ def test_sin_url_ni_origen_falla_con_mensaje(tmp_path):
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
-        "TMPDIR": str(tmp_path),
+        "FOTOS_LOCK": str(tmp_path / "psfotos-sync.lock"),
         "FOTOS_DEST": str(tmp_path / "espejo"),
         "FOTOS_ENV_FILE": str(tmp_path / "no-existe.env"),
     }
@@ -135,7 +135,7 @@ def test_el_destino_es_el_FOTOS_HOST_DIR_que_monta_compose(tmp_path):
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
-        "TMPDIR": str(tmp_path),
+        "FOTOS_LOCK": str(tmp_path / "psfotos-sync.lock"),
         "FOTOS_SRC_DIR": str(src),
         "FOTOS_ENV_FILE": str(envfile),
     }
@@ -155,7 +155,7 @@ def test_sin_FOTOS_HOST_DIR_el_destino_es_data_fotos_del_stack(tmp_path):
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
-        "TMPDIR": str(tmp_path),
+        "FOTOS_LOCK": str(tmp_path / "psfotos-sync.lock"),
         "FOTOS_SRC_DIR": str(src),
         "FOTOS_ENV_FILE": str(stack / ".env"),
     }
@@ -192,7 +192,10 @@ def test_un_origen_que_lista_muchas_menos_fotos_no_borra_nada(tmp_path):
 
 def test_no_se_solapan_dos_ejecuciones(tmp_path):
     src, dest = _origen(tmp_path), tmp_path / "espejo"
-    (tmp_path / "psfotos-sync.lock").mkdir()
+    lock = tmp_path / "psfotos-sync.lock"
+    lock.mkdir()
+    # El dueno del lock es un proceso VIVO (este mismo test).
+    (lock / "pid").write_text(str(os.getpid()))
 
     r = _run(src, dest)
 
@@ -200,7 +203,70 @@ def test_no_se_solapan_dos_ejecuciones(tmp_path):
     assert "ya hay una sincronizacion en curso" in r.stderr
     assert not dest.exists()
     # Y no se lleva por delante el lock de la otra ejecucion.
-    assert (tmp_path / "psfotos-sync.lock").exists()
+    assert (lock / "pid").read_text() == str(os.getpid())
+
+
+def test_un_lock_huerfano_se_reclama(tmp_path):
+    # kill -9 o un apagon dejan el lock sin dueno: no debe congelar el espejo
+    # todas las noches hasta que alguien lo borre a mano.
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+    lock = tmp_path / "psfotos-sync.lock"
+    lock.mkdir()
+    muerto = subprocess.Popen(["true"])
+    muerto.wait()
+    (lock / "pid").write_text(str(muerto.pid))
+
+    r = _run(src, dest)
+
+    assert r.returncode == 0, r.stderr
+    assert "lock huerfano" in r.stderr
+    assert (dest / "1" / "144750.jpg").exists()
+    assert not lock.exists()
+
+
+@pytest.mark.parametrize(
+    "forma", ["~/espejo-en-home", "${HOME}/espejo-en-home", "$HOME/espejo-en-home"]
+)
+def test_FOTOS_HOST_DIR_con_tilde_o_HOME_se_expande_como_hace_compose(tmp_path, forma):
+    src = _origen(tmp_path)
+    stack = tmp_path / "stack"
+    stack.mkdir()
+    (stack / ".env").write_text(f"FOTOS_HOST_DIR={forma}\n")
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "FOTOS_LOCK": str(tmp_path / "psfotos-sync.lock"),
+        "FOTOS_SRC_DIR": str(src),
+        "FOTOS_ENV_FILE": str(stack / ".env"),
+    }
+    r = subprocess.run(
+        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "espejo-en-home" / "1" / "144750.jpg").exists()
+    assert not (stack / "~").exists()
+
+
+def test_FOTOS_HOST_DIR_con_otra_variable_aborta_en_vez_de_escribir_en_un_sitio_raro(
+    tmp_path,
+):
+    src = _origen(tmp_path)
+    stack = tmp_path / "stack"
+    stack.mkdir()
+    (stack / ".env").write_text("FOTOS_HOST_DIR=${DATOS}/fotos\n")
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "FOTOS_LOCK": str(tmp_path / "psfotos-sync.lock"),
+        "FOTOS_SRC_DIR": str(src),
+        "FOTOS_ENV_FILE": str(stack / ".env"),
+    }
+    r = subprocess.run(
+        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert r.returncode != 0
+    assert "ruta absoluta" in r.stderr
+    assert list(stack.iterdir()) == [stack / ".env"]
 
 
 def test_el_lock_se_libera_al_terminar_bien_o_mal(tmp_path):

@@ -10,6 +10,8 @@ import os from "os";
 import path from "path";
 import sharp from "sharp";
 import {
+  __resetFotos,
+  estadoEspejo,
   esCodigoValido,
   leerOriginal,
   localizarFoto,
@@ -33,6 +35,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  __resetFotos();
   raiz = fs.mkdtempSync(path.join(os.tmpdir(), "fotos-test-"));
   fotosDir = path.join(raiz, "espejo");
   cacheDir = path.join(raiz, "cache");
@@ -249,6 +252,36 @@ describe("sin espejo la app sigue funcionando", () => {
     fs.rmSync(fotosDir, { recursive: true });
     fs.mkdirSync(fotosDir);
     expect(await slotsDeFoto("144750")).toEqual([]);
+  });
+});
+
+describe("espejo que no responde", () => {
+  it("tras un stat colgado deja de tocar el disco un rato, en vez de agotar el pool de hilos", async () => {
+    poner(1, "144750.jpg");
+    vi.useFakeTimers();
+    try {
+      // Un montaje colgado no falla: no contesta nunca.
+      const lstat = vi.spyOn(fs.promises, "lstat").mockImplementation(() => new Promise(() => {}));
+
+      const primera = localizarFoto("144750", 1);
+      await vi.advanceTimersByTimeAsync(3001);
+      expect(await primera).toBeNull();
+      expect(lstat).toHaveBeenCalledTimes(1); // no prueba las otras 3 extensiones
+
+      // Un lote entero, y el estado del espejo: ni una llamada más a disco.
+      const leer = vi.spyOn(fs.promises, "readFile");
+      expect(await slotsDeFotos(["144750", "132374", "169"])).toEqual({ "144750": [], "132374": [], "169": [] });
+      expect(await estadoEspejo()).toEqual({ last_sync: null, horas: null, ficheros: null });
+      expect(lstat).toHaveBeenCalledTimes(1);
+      expect(leer).not.toHaveBeenCalled();
+
+      // Pasado el corte, vuelve a mirar (y el espejo ya responde).
+      lstat.mockRestore();
+      await vi.advanceTimersByTimeAsync(30_001);
+      expect(await slotsDeFoto("144750")).toEqual([1]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

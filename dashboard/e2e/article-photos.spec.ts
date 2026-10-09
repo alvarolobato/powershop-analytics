@@ -402,6 +402,7 @@ test.describe("fotos de artículo — móvil (iPhone 13)", () => {
   test.use({ ...iPhone13 });
 
   test("no hay hover: el toque abre el lightbox directamente", async ({ page }) => {
+    const peticiones = vigilarFotos(page);
     await abrirPanel(page);
 
     // El glifo se mantiene: indica que la celda es pulsable.
@@ -412,11 +413,14 @@ test.describe("fotos de artículo — móvil (iPhone 13)", () => {
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await expect(page.getByRole("tooltip")).toHaveCount(0);
     await expect(page.getByTestId("photo-lightbox-counter")).toHaveText("1/3");
     await expect
       .poll(() => dialog.locator("img").evaluate((el: HTMLImageElement) => el.naturalWidth))
       .toBeGreaterThan(0);
+    // En táctil el tooltip ni se monta (no basta con que esté oculto: abrir el
+    // lightbox siempre lo oculta) y su miniatura de 256 px nunca se pide.
+    await expect(page.getByTestId("article-photo-tooltip")).toHaveCount(0);
+    expect(peticiones.filter((r) => r.url().includes("w=256"))).toEqual([]);
 
     // El lightbox cabe en la pantalla.
     const caja = (await page.getByTestId("photo-lightbox").boundingBox())!;

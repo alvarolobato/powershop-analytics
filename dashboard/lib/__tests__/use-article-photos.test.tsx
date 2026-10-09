@@ -5,6 +5,7 @@ import {
   __resetArticlePhotosCache,
   cargarFotos,
   MAX_LOTE,
+  REINTENTO_MS,
   useArticlePhotos,
 } from "../use-article-photos";
 
@@ -171,9 +172,37 @@ describe("useArticlePhotos", () => {
     vi.stubGlobal("fetch", vi.fn(respuesta));
     const { result } = renderHook(() => useArticlePhotos(["144750"], ["V26212484"]));
 
-    await expect(cargarFotos(["144750"], ["V26212484"])).resolves.toBeUndefined();
+    await expect(cargarFotos(["144750"], ["V26212484"])).resolves.toEqual(expect.any(Boolean));
     expect(result.current.slotsDeCodigo("144750")).toEqual([]);
     expect(result.current.deRef("V26212484")).toBeNull();
+  });
+
+  it("un fallo al abrir el panel se reintenta a los 15 s, sin esperar a los 10 minutos", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-08T10:00:00Z") });
+    const roto = vi.fn(() => Promise.resolve(new Response("boom", { status: 500 })));
+    vi.stubGlobal("fetch", roto);
+    const { result, unmount } = renderHook(() => useArticlePhotos(["144750"], []));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(roto).toHaveBeenCalledTimes(1);
+    expect(result.current.slotsDeCodigo("144750")).toEqual([]);
+
+    vi.stubGlobal("fetch", fetchMock);
+    await vi.advanceTimersByTimeAsync(REINTENTO_MS - 1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.slotsDeCodigo("144750")).toEqual([1, 2, 3]);
+
+    // Y una vez bien, no sigue reintentando.
+    await vi.advanceTimersByTimeAsync(5 * REINTENTO_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("cargarFotos dice si quedó algo sin saber", async () => {
+    expect(await cargarFotos(["144750"], [])).toBe(true);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    expect(await cargarFotos(["999"], [])).toBe(false);
   });
 
   it("un fallo no se cachea: el siguiente intento vuelve a preguntar", async () => {

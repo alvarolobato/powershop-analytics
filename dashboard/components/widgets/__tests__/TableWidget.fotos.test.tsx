@@ -159,11 +159,19 @@ describe("TableWidget — hover de fotos", () => {
       columns: ["Código", "Tienda", "Referencia", "Uds"],
       rows: [["144750", "LISBOA", "V26000169", 3]],
     };
+    // La referencia SÍ tiene foto en este caso: así "0 disparadores en la celda
+    // del código" no puede ser simplemente que la respuesta aún no ha llegado.
+    data.rows[0][2] = "V26212484";
     render(<TableWidget widget={base} data={data} />);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    await Promise.resolve();
-    expect(screen.queryAllByTestId("article-photo-trigger")).toHaveLength(0);
+    await cargado();
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).codigos).toEqual([]);
+    const celdas = fila("V26212484").querySelectorAll("td");
+    // El hover está en la referencia (foto del artículo de ESA referencia)…
+    expect(within(celdas[2] as HTMLElement).queryByTestId("article-photo-trigger")).not.toBeNull();
+    // …y el código de tienda queda intacto.
+    expect(within(celdas[0] as HTMLElement).queryByTestId("article-photo-trigger")).toBeNull();
+    fireEvent.click(screen.getByText("V26212484"));
+    expect(screen.getByRole("dialog").querySelector("img")).toHaveAttribute("src", "/api/fotos/144750/1?w=1024");
   });
 
   it("con articulo_codigo_col el código se pinta como identificador, no como número ni ranking", async () => {
@@ -255,6 +263,26 @@ describe("TableWidget — hover de fotos", () => {
     expect(
       screen.getAllByTestId("article-photo-trigger").filter((t) => t.getAttribute("tabindex") === "0"),
     ).toHaveLength(2);
+  });
+
+  it("la parada de Tab cae en la primera celda que de verdad lleva hover", async () => {
+    // Referencia numérica < 1000 en la primera columna: se pinta como ranking
+    // y no se envuelve. La parada tiene que ir a la descripción, no perderse.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ porCodigo: {}, porRef: { "777": { codigo: "144750", slots: [1] } } }), {
+          status: 200,
+        }),
+      ),
+    );
+    const data: WidgetData = { columns: ["Ref", "Descripción", "Uds"], rows: [[777, "CAMISA", 3]] };
+    render(<TableWidget widget={base} data={data} />);
+    await cargado();
+    const todos = screen.getAllByTestId("article-photo-trigger");
+    expect(todos).toHaveLength(1);
+    expect(todos[0]).toHaveAttribute("tabindex", "0");
+    expect(todos[0]).toHaveTextContent("Camisa");
   });
 
   it("con mostrar_fotos la parada de Tab es la miniatura", async () => {
