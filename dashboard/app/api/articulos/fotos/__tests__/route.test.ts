@@ -55,6 +55,7 @@ describe("POST /api/articulos/fotos", () => {
     expect(await res.json()).toEqual({
       porCodigo: { "144750": [1, 2, 3], "132374": [1], "169": [] },
       porRef: {},
+      porToken: {},
     });
     expect(mockQuery).not.toHaveBeenCalled();
   });
@@ -76,6 +77,7 @@ describe("POST /api/articulos/fotos", () => {
         V26212484: { codigo: "144750", slots: [1, 2, 3] },
         V26000001: { codigo: "169", slots: [] },
       },
+      porToken: {},
     });
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toContain("ccrefejofacm = ANY($1::text[])");
@@ -132,6 +134,7 @@ describe("POST /api/articulos/fotos", () => {
     expect(await res.json()).toEqual({
       porCodigo: { "132374": [1] },
       porRef: { V26212484: { codigo: "144750", slots: [1, 2, 3] } },
+      porToken: {},
     });
   });
 
@@ -186,7 +189,7 @@ describe("POST /api/articulos/fotos", () => {
   it("cuerpo vacío → 200 sin nada", async () => {
     const res = await POST(peticion({}));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ porCodigo: {}, porRef: {} });
+    expect(await res.json()).toEqual({ porCodigo: {}, porRef: {}, porToken: {} });
   });
 
   it.each([
@@ -212,7 +215,7 @@ describe("POST /api/articulos/fotos", () => {
 
   it("no acepta descripciones: la descripción no identifica un artículo", async () => {
     const res = await POST(peticion({ descripciones: ["CAMISA FLORES C/CINTURON"] }));
-    expect(await res.json()).toEqual({ porCodigo: {}, porRef: {} });
+    expect(await res.json()).toEqual({ porCodigo: {}, porRef: {}, porToken: {} });
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
@@ -223,7 +226,7 @@ describe("POST /api/articulos/fotos", () => {
     const res = await POST(peticion({ codigos: ["144750"], refs: ["V26212484"] }));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ porCodigo: { "144750": [1, 2, 3] }, porRef: {} });
+    expect(await res.json()).toEqual({ porCodigo: { "144750": [1, 2, 3] }, porRef: {}, porToken: {} });
   });
 
   it("sin espejo (FOTOS_DIR inexistente) responde 200 sin fotos", async () => {
@@ -231,5 +234,65 @@ describe("POST /api/articulos/fotos", () => {
     const res = await POST(peticion({ codigos: ["144750", "132374"] }));
     expect(res.status).toBe(200);
     expect((await res.json()).porCodigo).toEqual({ "144750": [], "132374": [] });
+  });
+  // --- modo tokens (chat, #986) -------------------------------------------
+
+  it("tokens: resuelve un modelo a todos sus colores con foto", async () => {
+    // El modelo I263002 agrupa tres colores; dos tienen foto en el espejo.
+    mockQuery.mockResolvedValue({
+      columns: [],
+      rows: [
+        ["I263002", "144750", "I26300212", "T-SHIRT", "MARINO"],
+        ["I263002", "132374", "I26300220", "T-SHIRT", "BLANCO"],
+        ["I263002", "169", "I26300299", "T-SHIRT", "NEGRO"],
+      ],
+    });
+
+    const res = await POST(peticion({ tokens: ["I263002"] }));
+    const { porToken } = await res.json();
+
+    // 169 no tiene foto, asi que no sale: el cliente decora solo lo que puede enseñar.
+    expect(porToken.I263002).toEqual([
+      {
+        codigo: "144750",
+        referencia: "I26300212",
+        descripcion: "T-SHIRT",
+        color: "MARINO",
+        slots: [1, 2, 3],
+      },
+      {
+        codigo: "132374",
+        referencia: "I26300220",
+        descripcion: "T-SHIRT",
+        color: "BLANCO",
+        slots: [1],
+      },
+    ]);
+  });
+
+  it("tokens: no consulta por palabras sin digitos", async () => {
+    const res = await POST(peticion({ tokens: ["CAMISA", "PANTALON", "ab"] }));
+
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect((await res.json()).porToken).toEqual({});
+  });
+
+  it("tokens: un token que la BD no reconoce no aparece", async () => {
+    mockQuery.mockResolvedValue({ columns: [], rows: [] });
+    const res = await POST(peticion({ tokens: ["Z9999999"] }));
+    expect((await res.json()).porToken).toEqual({});
+  });
+
+  it("tokens: un fallo de BD devuelve 200 sin fotos, no un error", async () => {
+    mockQuery.mockRejectedValue(new Error("se cayo postgres"));
+    const res = await POST(peticion({ tokens: ["I263002"] }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).porToken).toEqual({});
+  });
+
+  it("tokens: rechaza lo que no es una lista de textos", async () => {
+    const res = await POST(peticion({ tokens: [1, 2] }));
+    expect(res.status).toBe(400);
   });
 });

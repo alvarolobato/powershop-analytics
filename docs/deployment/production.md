@@ -199,7 +199,15 @@ Article photos ([D-068](../decisions/D-068-fotos-por-convencion-de-ruta.md)) are
    FOTOS_SMB_URL=//usuario:clave@HOST/SHARE
    ```
 
-2. Install the launchd agent from a repo checkout. It **copies** its three scripts into `~/powershop/scripts/`, so the checkout can be deleted afterwards:
+2. Install `rclone`, the SMB client the mirror uses. It is a hard requirement:
+
+   ```bash
+   brew install rclone
+   ```
+
+   > Why not just mount the share and `rsync`? macOS TCC does not let a launchd job read a mounted **network volume**: `mount_smbfs` succeeds and `stat` works, but listing a directory and reading a file both return `Operation not permitted`. Granting it means giving Full Disk Access to `/bin/bash` from the Mac's screen. `rclone` speaks SMB over TCP without mounting anything, so TCC does not apply — and it is 3x faster. See [D-068](../decisions/D-068-fotos-por-convencion-de-ruta.md).
+
+3. Install the launchd agent from a repo checkout. It **copies** its three scripts into `~/powershop/scripts/`, so the checkout can be deleted afterwards:
 
    ```bash
    git clone --depth 1 https://github.com/alvarolobato/powershop-analytics.git /tmp/ps-repo
@@ -207,20 +215,20 @@ Article photos ([D-068](../decisions/D-068-fotos-por-convencion-de-ruta.md)) are
    rm -rf /tmp/ps-repo
    ```
 
-3. Run the first copy by hand, with the VPN up, and let it finish. It moves ~3.5 GB at ~0.21 MB/s: **about 4.6 hours**. `rsync` is resumable, so an interrupted run just continues on the next one.
+4. Run the first copy by hand, with the VPN up, and let it finish. It moves ~3.5 GB at ~0.75 MB/s: **about 1.5 hours**. It is resumable, so an interrupted run just continues on the next one.
 
    ```bash
    launchctl kickstart gui/$(id -u)/com.powershop.fotos-sync
    tail -f ~/Library/Logs/com.powershop.fotos-sync.log
    ```
 
-4. `ps prod update`, so production gets the compose file that declares the `/fotos` mount and a dashboard image that serves it. (Once that is in place, new photos need no restart: a bind mount sees them immediately.)
+5. `ps prod update`, so production gets the compose file that declares the `/fotos` mount and a dashboard image that serves it. (Once that is in place, new photos need no restart: a bind mount sees them immediately.)
 
-After that the agent runs **daily at 01:00** (~15 min, nearly all of it enumerating). Each run does two independent things, both of which need the VPN:
+After that the agent runs **daily at 01:00**. A day's delta is a handful of photos, so it is minutes: enumerating all four directories takes about 6 seconds. Each run does two independent things, both of which need the VPN:
 
 | Step | Script | On failure |
 |------|--------|------------|
-| Mirror dirs `1..4` with `rsync -rt --delete` | `sync-fotos.sh` | Aborts **before** deleting anything if any source dir is missing or lists empty; `.last-sync.json` is not updated |
+| Mirror dirs `1..4` with `rclone sync` over SMB | `sync-fotos.sh` | Aborts **before** deleting anything if any source dir is missing or lists empty; `.last-sync.json` is not updated |
 | Check `Articulos.Path..Path4` still follow the convention | `check-fotos-paths.py` (runs inside the `etl` container, which has `p4d` and the 4D credentials) | Logs the deviating articles; those would stop showing that photo |
 
 Verify:

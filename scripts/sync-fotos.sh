@@ -2,12 +2,15 @@
 # Espeja las fotos de articulo del share de PowerShop a disco local.
 # Diario via launchd. Solo en produccion. Ver docs/decisions/D-068-fotos-por-convencion-de-ruta.md
 #
-# El servidor no necesita rsync: se ejecuta aqui y copia entre dos rutas
-# locales, el punto de montaje SMB (solo lectura) y el espejo.
+# El servidor no necesita nada instalado: se habla SMB con rclone desde aqui, en
+# espacio de usuario y sin montar ningun volumen. Ver el bloque "Dos modos de
+# origen" mas abajo para por que no se monta el share.
 #
 # Variables:
-#   FOTOS_SMB_URL     //usuario:clave@HOST/SHARE. Obligatoria salvo con FOTOS_SRC_DIR.
+#   FOTOS_SMB_URL     //[usuario[:clave]@]HOST/SHARE. Obligatoria salvo con FOTOS_SRC_DIR.
 #   FOTOS_SMB_SUBDIR  ruta de Imagenes dentro del share (def. PS_Ficheros/Imagenes).
+#   FOTOS_RCLONE      binario de rclone (def. el del PATH).
+#   FOTOS_TRANSFERS   copias en paralelo (def. 16).
 #   FOTOS_HOST_DIR    raiz del espejo: la MISMA variable que monta docker-compose
 #                     (def. ./data/fotos, relativa al directorio del .env).
 #   FOTOS_DEST        fuerza otro destino (tests, pruebas a mano).
@@ -125,23 +128,12 @@ if ! ln -s "$$" "$LOCK" 2>/dev/null; then
         exit 1
     fi
 fi
-MOUNT_POINT=""
-MONTADO=0
-RSYNC_PID=""
+COPIA_PID=""
 cleanup() {
-    # Si nos matan a mitad, el rsync hijo no debe seguir escribiendo sin lock
-    # ni con el share desmontado debajo.
-    if [ -n "$RSYNC_PID" ]; then
-        kill "$RSYNC_PID" 2>/dev/null || true
-        wait "$RSYNC_PID" 2>/dev/null || true
-    fi
-    if [ "$MONTADO" = "1" ]; then
-        umount "$MOUNT_POINT" 2>/dev/null \
-            || diskutil unmount force "$MOUNT_POINT" >/dev/null 2>&1 \
-            || echo "sync-fotos: no se pudo desmontar $MOUNT_POINT; desmontalo a mano" >&2
-    fi
-    if [ -n "$MOUNT_POINT" ]; then
-        rmdir "$MOUNT_POINT" 2>/dev/null || true
+    # Si nos matan a mitad, el hijo que copia no debe seguir escribiendo sin lock.
+    if [ -n "$COPIA_PID" ]; then
+        kill "$COPIA_PID" 2>/dev/null || true
+        wait "$COPIA_PID" 2>/dev/null || true
     fi
     # Solo si el lock sigue siendo mio.
     if [ "$(readlink "$LOCK" 2>/dev/null || true)" = "$$" ]; then
@@ -152,19 +144,101 @@ trap cleanup EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
 
+# Dos modos de origen:
+#
+#   local  — FOTOS_SRC_DIR apunta a un directorio ya accesible. rsync. Lo usan
+#            los tests (ni VPN ni share) y sirve para reintentar a mano.
+#   smb    — se habla SMB por TCP con rclone, SIN montar nada.
+#
+# Por que rclone y no mount_smbfs + rsync, que es lo que habia: macOS aplica TCC
+# (privacidad) a los volumenes de RED montados. Un proceso lanzado por launchd no
+# tiene ese permiso y, aunque el mount_smbfs devuelve 0 y el stat de un fichero
+# funciona, listar un directorio y LEER el contenido dan "Operation not
+# permitted". El guard veia el origen vacio y abortaba, que es justo lo que debe
+# hacer. Concederlo exige "Acceso total al disco" a /bin/bash desde la pantalla
+# del Mac: ni se puede automatizar ni conviene. rclone habla el protocolo por TCP
+# y no monta ningun volumen, asi que TCC no le aplica. De paso es mas rapido:
+# 0,68 MB/s frente a 0,21, y listar el directorio de 6.900 fotos baja de mas de
+# 2 minutos a 1,6 segundos.
+MODO="smb"
 if [ -n "${FOTOS_SRC_DIR:-}" ]; then
+    MODO="local"
     SRC="$FOTOS_SRC_DIR"
 else
     FOTOS_SMB_URL="${FOTOS_SMB_URL:?define FOTOS_SMB_URL en el .env (ver .env.example)}"
-    MOUNT_POINT="$(mktemp -d /tmp/psfotos.XXXXXX)"
-    mount_smbfs -o ro,nobrowse "$FOTOS_SMB_URL" "$MOUNT_POINT"
-    MONTADO=1
-    SRC="$MOUNT_POINT/$FOTOS_SMB_SUBDIR"
+    RCLONE="${FOTOS_RCLONE:-rclone}"
+    command -v "$RCLONE" >/dev/null 2>&1 || {
+        echo "sync-fotos: falta rclone (brew install rclone). Es el cliente SMB del espejo." >&2
+        exit 1
+    }
+    # //[usuario[:clave]@]HOST/SHARE
+    # Se corta por el ULTIMO @, no por el primero: una clave puede llevar @ y
+    # con %%@* el host saldria partido por la mitad.
+    _u="${FOTOS_SMB_URL#//}"
+    case "$_u" in
+        *@*) _cred="${_u%@*}"; _resto="${_u##*@}" ;;
+        *) _cred=""; _resto="$_u" ;;
+    esac
+    SMB_HOST="${_resto%%/*}"
+    SMB_SHARE="${_resto#*/}"
+    SMB_USER="${_cred%%:*}"
+    SMB_PASS="${_cred#*:}"
+    [ "$SMB_PASS" = "$_cred" ] && SMB_PASS=""
+    # El share tiene que existir y no estar vacio: //HOST/ a secas daria
+    # ":smb:/PS_Ficheros/..." y abortaria mas tarde con un "no existe" enganoso.
+    if [ -z "$SMB_HOST" ] || [ "$SMB_SHARE" = "$_resto" ] || [ -z "$SMB_SHARE" ]; then
+        echo "sync-fotos: FOTOS_SMB_URL mal formada; se espera //[usuario[:clave]@]HOST/SHARE" >&2
+        exit 1
+    fi
+    RC_ARGS=(--smb-host="$SMB_HOST" --smb-user="${SMB_USER:-guest}")
+    # La clave NO va en argv: la linea de comandos de un rclone que corre horas
+    # la ve cualquiera con `ps`, y la forma ofuscada de rclone es reversible.
+    # Via variable de entorno (rclone acepta RCLONE_<FLAG>) y ofuscando por
+    # stdin, que tampoco deja el texto plano en argv.
+    if [ -n "$SMB_PASS" ]; then
+        RCLONE_SMB_PASS="$(printf '%s' "$SMB_PASS" | "$RCLONE" obscure -)"
+        export RCLONE_SMB_PASS
+    fi
+    unset SMB_PASS _cred
+    SRC=":smb:$SMB_SHARE/$FOTOS_SMB_SUBDIR"
 fi
+
+# Solo fotos. Con --include, rclone excluye todo lo demas: fuera Thumbs.db,
+# desktop.ini y los .txt sueltos del share.
+RC_FILTROS=(--include='*.jpg' --include='*.JPG' --include='*.jpeg' --include='*.JPEG')
 
 contar_fotos() {
     find "$1" -mindepth 1 -maxdepth 1 -type f \
         \( -name '*.jpg' -o -name '*.JPG' -o -name '*.jpeg' -o -name '*.JPEG' \) | wc -l | tr -d ' '
+}
+
+# Las tres operaciones sobre el ORIGEN, cada una en sus dos modos.
+# El stderr de rclone NO se tira: una VPN caida o unas credenciales malas se
+# verian si no como "enumera vacio", que es exactamente el callejon sin salida
+# diagnostico que motivo este cambio de transporte.
+origen_existe() {
+    if [ "$MODO" = "local" ]; then
+        [ -d "$SRC/$1" ]
+    else
+        "$RCLONE" "${RC_ARGS[@]}" lsjson --stat "$SRC/$1" >/dev/null
+    fi
+}
+
+origen_vacio() {
+    if [ "$MODO" = "local" ]; then
+        [ -z "$(find "$SRC/$1" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]
+    else
+        # Sin `| head`: con pipefail, el SIGPIPE a rclone haria fallar al script.
+        [ -z "$("$RCLONE" "${RC_ARGS[@]}" lsf --files-only --max-depth 1 "$SRC/$1")" ]
+    fi
+}
+
+origen_contar_fotos() {
+    if [ "$MODO" = "local" ]; then
+        contar_fotos "$SRC/$1"
+    else
+        "$RCLONE" "${RC_ARGS[@]}" "${RC_FILTROS[@]}" lsf --files-only --max-depth 1 "$SRC/$1" | wc -l | tr -d ' '
+    fi
 }
 
 # GUARD de un directorio. Aborta si el origen no esta, enumera vacio o trae
@@ -174,11 +248,11 @@ contar_fotos() {
 # una actualizacion. FOTOS_ALLOW_SHRINK=1 lo permite cuando el borrado es real.
 guard() {
     local d="$1" en_origen en_espejo
-    if [ ! -d "$SRC/$d" ]; then
+    if ! origen_existe "$d"; then
         echo "sync-fotos: $SRC/$d no existe — aborto sin tocar el espejo" >&2
         exit 1
     fi
-    if [ -z "$(find "$SRC/$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    if origen_vacio "$d"; then
         echo "sync-fotos: $SRC/$d enumera vacio — aborto sin tocar el espejo" >&2
         exit 1
     fi
@@ -189,7 +263,7 @@ guard() {
         exit 1
     }
     [ "$en_espejo" -gt 0 ] || return 0
-    en_origen="$(contar_fotos "$SRC/$d")" || {
+    en_origen="$(origen_contar_fotos "$d")" || {
         echo "sync-fotos: no se pudo contar $SRC/$d — aborto sin tocar el espejo" >&2
         exit 1
     }
@@ -214,16 +288,30 @@ copiados=0
 for d in 1 2 3 4; do
     guard "$d"
     mkdir -p "$FOTOS_DEST/$d"
-    # -rt y no -a: tamano + mtime es la senal incremental correcta. Nada de
-    # --checksum, que releeria los 3,5 GB por VPN cada noche.
-    rsync -rt --delete \
-        --include='*.jpg' --include='*.JPG' \
-        --include='*.jpeg' --include='*.JPEG' \
-        --exclude='*' \
-        "$SRC/$d/" "$FOTOS_DEST/$d/" &
-    RSYNC_PID=$!
-    wait "$RSYNC_PID"
-    RSYNC_PID=""
+    if [ "$MODO" = "local" ]; then
+        # -rt y no -a: tamano + mtime es la senal incremental correcta. Nada de
+        # --checksum, que releeria los 3,5 GB cada noche.
+        rsync -rt --delete \
+            --include='*.jpg' --include='*.JPG' \
+            --include='*.jpeg' --include='*.JPEG' \
+            --exclude='*' \
+            "$SRC/$d/" "$FOTOS_DEST/$d/" &
+    else
+        # sync (no copy): borra del espejo lo que ya no esta en el origen, con
+        # el guard del 10 % cubriendo el caso del share a medio caer. Compara
+        # tamano + mtime, igual que rsync -rt. --transfers 16 medido: 0,68 MB/s
+        # frente a 0,54 con los 4 por defecto.
+        # --max-depth 1: los --include de rclone NO estan anclados y casan a
+        # cualquier profundidad, asi que sin esto bajaria a los subdirectorios
+        # de trabajo de quien edita las fotos. rsync los podaba con --exclude.
+        "$RCLONE" "${RC_ARGS[@]}" "${RC_FILTROS[@]}" sync --max-depth 1 \
+            --transfers="${FOTOS_TRANSFERS:-16}" --checkers="${FOTOS_TRANSFERS:-16}" \
+            --stats=0 --stats-one-line \
+            "$SRC/$d" "$FOTOS_DEST/$d" &
+    fi
+    COPIA_PID=$!
+    wait "$COPIA_PID"
+    COPIA_PID=""
     # Solo fotos, con el mismo criterio que el guard: un .DS_Store de Finder o
     # un temporal de rsync no son ficheros del espejo.
     n="$(contar_fotos "$FOTOS_DEST/$d")"
