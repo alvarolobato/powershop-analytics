@@ -235,11 +235,6 @@ export function TableWidget({
     };
   }
 
-  const colsArticulo = [articulo.codigoIdx, articulo.refIdx, articulo.descIdx].filter(
-    (i): i is number => i !== null,
-  );
-  const primeraColArticulo = colsArticulo.length > 0 ? Math.min(...colsArticulo) : -1;
-
   if (!data || data.rows.length === 0) {
     return (
       <div
@@ -437,17 +432,27 @@ export function TableWidget({
               // Envuelve el contenido de las celdas que identifican el
               // artículo (código, referencia y, anclada a ellas, descripción).
               // No sustituye cómo se pinta la celda: lo envuelve.
-              const conFoto = (cIdx: number, contenido: React.ReactNode) =>
-                foto &&
-                (cIdx === articulo.codigoIdx || cIdx === articulo.refIdx || cIdx === articulo.descIdx) ? (
+              // Una sola parada de Tab por fila: la miniatura si la hay y,
+              // si no, la primera celda que DE VERDAD lleve hover. Se decide
+              // al pintar y no por columnas: una referencia numérica cae en
+              // otra rama de render y no llega a envolverse.
+              let paradaPuesta = Boolean(widget.mostrar_fotos);
+              const conFoto = (cIdx: number, contenido: React.ReactNode) => {
+                if (
+                  !foto ||
+                  !(cIdx === articulo.codigoIdx || cIdx === articulo.refIdx || cIdx === articulo.descIdx)
+                ) {
+                  return contenido;
+                }
+                const enfocable = !paradaPuesta;
+                paradaPuesta = true;
+                return (
                   <ArticlePhotoHover
                     // Las filas van por índice: sin esta clave, al reordenar
                     // la instancia heredaría el estado (tooltip armado, foto
                     // cargada, lightbox abierto) del artículo anterior.
                     key={foto.codigo}
-                    // Una sola parada de Tab por fila: la miniatura si la
-                    // hay, y si no la primera celda del artículo.
-                    enfocable={!widget.mostrar_fotos && cIdx === primeraColArticulo}
+                    enfocable={enfocable}
                     codigo={foto.codigo}
                     slots={foto.slots}
                     referencia={foto.referencia}
@@ -455,9 +460,8 @@ export function TableWidget({
                   >
                     {contenido}
                   </ArticlePhotoHover>
-                ) : (
-                  contenido
                 );
+              };
               return (
               <tr
                 key={rIdx}

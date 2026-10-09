@@ -86,11 +86,39 @@ function cacheDir(): string | null {
   return dir ? path.resolve(dir) : null;
 }
 
+class Timeout extends Error {}
+
+/**
+ * Cortacircuitos del espejo. `conTope` deja de ESPERAR una llamada de disco
+ * colgada, pero no la cancela: sigue ocupando uno de los 4 hilos del pool de
+ * libuv. Con un montaje colgado (solo pasa en dev, con FOTOS_DIR sobre un
+ * share) cuatro llamadas bastarían para congelar todo `fs` y `dns` del
+ * proceso, y el healthcheck las lanza cada 15 s. Por eso, tras el primer
+ * timeout, durante un rato se contesta "sin espejo" sin tocar el disco.
+ */
+const CORTE_MS = 30_000;
+let espejoCortadoHasta = 0;
+
+function espejoCortado(): boolean {
+  return Date.now() < espejoCortadoHasta;
+}
+
+/** Solo para tests. */
+export function __resetFotos(): void {
+  espejoCortadoHasta = 0;
+  estadoCache = null;
+}
+
 function conTope<T>(promesa: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const tope = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("timeout")), ms);
+    timer = setTimeout(() => {
+      espejoCortadoHasta = Date.now() + CORTE_MS;
+      reject(new Timeout("timeout"));
+    }, ms);
   });
+  // La llamada original puede rechazar más tarde, ya sin nadie escuchando.
+  promesa.catch(() => {});
   return Promise.race([promesa, tope]).finally(() => clearTimeout(timer));
 }
 
@@ -103,6 +131,7 @@ export async function localizarFoto(codigo: string, slot: number): Promise<Foto 
   if (!raiz) return null;
 
   for (const ext of EXTENSIONES) {
+    if (espejoCortado()) return null;
     // 2. La ruta se compone solo con valores ya validados.
     const ruta = path.resolve(path.join(raiz, String(slot), codigo + ext));
     // 3. Cinturón redundante: la ruta resuelta cae dentro del espejo.
@@ -112,9 +141,10 @@ export async function localizarFoto(codigo: string, slot: number): Promise<Foto 
       // El cinturón de arriba es léxico y no vería adónde apunta.
       const st = await conTope(fs.lstat(ruta), STAT_TIMEOUT_MS);
       if (st.isFile()) return { ruta, bytes: st.size, mtimeMs: Math.trunc(st.mtimeMs) };
-    } catch {
+    } catch (err) {
       // ENOENT es lo normal (el 84 % de los artículos no tiene foto). Cualquier
       // otro error (share desmontado, permisos) también es "no hay foto".
+      if (err instanceof Timeout) return null;
     }
   }
   return null;
@@ -166,10 +196,23 @@ export interface EstadoEspejo {
  * hace visible un job nocturno que lleva semanas fallando: sin esto el espejo
  * se congela y nadie lo nota. Un fichero concreto, sin listar nada.
  */
+let estadoCache: { raiz: string; hasta: number; valor: EstadoEspejo } | null = null;
+
 export async function estadoEspejo(): Promise<EstadoEspejo | null> {
   const raiz = fotosDir();
   if (!raiz) return null;
+  // El healthcheck llama cada 15 s: el marcador cambia una vez al día.
+  if (estadoCache && estadoCache.raiz === raiz && estadoCache.hasta > Date.now()) {
+    return estadoCache.valor;
+  }
+  const valor = await leerEstadoEspejo(raiz);
+  estadoCache = { raiz, hasta: Date.now() + 60_000, valor };
+  return valor;
+}
+
+async function leerEstadoEspejo(raiz: string): Promise<EstadoEspejo> {
   const vacio: EstadoEspejo = { last_sync: null, horas: null, ficheros: null };
+  if (espejoCortado()) return vacio;
   try {
     const texto = await conTope(fs.readFile(path.join(raiz, ".last-sync.json"), "utf8"), STAT_TIMEOUT_MS);
     const j = JSON.parse(texto.slice(0, 1000)) as { last_sync?: unknown; ficheros?: unknown };
@@ -198,13 +241,19 @@ let generando = 0;
 const enEspera: (() => void)[] = [];
 
 async function conTurno<T>(tarea: () => Promise<T>): Promise<T> {
-  if (generando >= MAX_GENERANDO) await new Promise<void>((r) => enEspera.push(r));
-  generando++;
+  if (generando >= MAX_GENERANDO) {
+    // Quien espera HEREDA el turno del que termina (no se decrementa y se
+    // vuelve a incrementar): así nadie puede colarse entre medias.
+    await new Promise<void>((r) => enEspera.push(r));
+  } else {
+    generando++;
+  }
   try {
     return await tarea();
   } finally {
-    generando--;
-    enEspera.shift()?.();
+    const siguiente = enEspera.shift();
+    if (siguiente) siguiente();
+    else generando--;
   }
 }
 

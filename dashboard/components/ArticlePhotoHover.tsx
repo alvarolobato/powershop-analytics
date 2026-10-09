@@ -104,6 +104,15 @@ export function ArticlePhotoHover({
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [abierto, setAbierto] = useState(false);
 
+  // Otra foto (cambió el primer slot tras una revalidación): lo que se sabía de
+  // la anterior, que cargó o que dio error, ya no vale.
+  const primerSlot = slots[0];
+  useEffect(() => {
+    setCargada(false);
+    setRota(false);
+  }, [codigo, primerSlot]);
+  const mostradoEn = useRef(0);
+
   const cancelar = useCallback(() => {
     if (timer.current !== null) {
       clearTimeout(timer.current);
@@ -124,6 +133,7 @@ export function ArticlePhotoHover({
     setPos({ top, left });
     setArmed(true);
     setVisible(true);
+    mostradoEn.current = Date.now();
   }, []);
 
   const programar = useCallback(
@@ -149,10 +159,16 @@ export function ArticlePhotoHover({
   // desplazan, el tooltip se quedaría flotando sobre otra fila.
   useEffect(() => {
     if (!visible) return;
-    window.addEventListener("scroll", ocultar, true);
+    const alDesplazar = () => {
+      // Al llegar con Tab a una fila fuera de la vista, el navegador desplaza
+      // justo después de mostrarlo: ese scroll no debe cerrarlo.
+      if (Date.now() - mostradoEn.current < 200) return;
+      ocultar();
+    };
+    window.addEventListener("scroll", alDesplazar, true);
     window.addEventListener("resize", ocultar);
     return () => {
-      window.removeEventListener("scroll", ocultar, true);
+      window.removeEventListener("scroll", alDesplazar, true);
       window.removeEventListener("resize", ocultar);
     };
   }, [visible, ocultar]);
@@ -249,6 +265,7 @@ export function ArticlePhotoHover({
               )}
               {/* eslint-disable-next-line @next/next/no-img-element -- next/image no aporta nada aquí: el redimensionado y la caché son de /api/fotos */}
               <img
+                key={`${codigo}/${primero}`}
                 src={urlFoto(codigo, primero, 256)}
                 alt={`Foto del artículo ${etiqueta}`}
                 width={LADO}

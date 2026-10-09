@@ -17,8 +17,11 @@ import path from "path";
 // `sembrarFotos()` borra los directorios 1..4, y quien tenga FOTOS_DIR
 // apuntando a un espejo de verdad (o a uno parcial en dev) lo perdería al
 // lanzar Playwright desde la misma shell.
-export const E2E_FOTOS_DIR = path.join(os.tmpdir(), "powershop-e2e-fotos", "espejo");
-export const E2E_FOTOS_CACHE_DIR = path.join(os.tmpdir(), "powershop-e2e-fotos", "cache");
+// Uno por puerto: dos ejecuciones simultáneas (cada agente usa su puerto, ver
+// AGENTS.md) no se borran las fotos la una a la otra.
+const RAIZ = path.join(os.tmpdir(), `powershop-e2e-fotos-${process.env.DASHBOARD_PORT ?? "4000"}`);
+export const E2E_FOTOS_DIR = path.join(RAIZ, "espejo");
+export const E2E_FOTOS_CACHE_DIR = path.join(RAIZ, "cache");
 
 /** JPEG de 96×96 (638 bytes), el mismo del slot 1 de scripts/seed-fotos-dev.sh. */
 const JPEG_MINIMO = Buffer.from(

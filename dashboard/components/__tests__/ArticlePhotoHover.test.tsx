@@ -183,8 +183,38 @@ describe("ArticlePhotoHover", () => {
     avanzar(HOVER_DELAY_MS);
     expect(screen.getByRole("tooltip")).toHaveAttribute("data-visible", "true");
 
+    // El scroll que provoca el propio navegador al enfocar una fila fuera de la
+    // vista llega justo después de mostrarlo: ese no lo cierra.
+    fireEvent.scroll(document.body);
+    expect(screen.getByTestId("article-photo-tooltip")).toHaveAttribute("data-visible", "true");
+
+    avanzar(250);
     fireEvent.scroll(document.body);
     expect(screen.getByTestId("article-photo-tooltip")).toHaveAttribute("data-visible", "false");
+  });
+
+  it("un error de la foto no es para siempre: si cambia la foto, el tooltip vuelve", () => {
+    // El slot 1 se borró y una revalidación deja el artículo con la foto del 2.
+    const { rerender } = render(
+      <ArticlePhotoHover codigo="144750" slots={[1, 2]}>
+        <span>ref</span>
+      </ArticlePhotoHover>,
+    );
+    const trigger = screen.getByTestId("article-photo-trigger");
+    fireEvent.mouseEnter(trigger);
+    avanzar(HOVER_DELAY_MS);
+    fireEvent.error(screen.getByTestId("article-photo-tooltip").querySelector("img")!);
+    expect(screen.getByTestId("article-photo-tooltip")).toHaveStyle({ visibility: "hidden" });
+
+    rerender(
+      <ArticlePhotoHover codigo="144750" slots={[2]}>
+        <span>ref</span>
+      </ArticlePhotoHover>,
+    );
+    const tooltip = screen.getByTestId("article-photo-tooltip");
+    expect(tooltip.querySelector("img")).toHaveAttribute("src", "/api/fotos/144750/2?w=256");
+    expect(tooltip).toHaveStyle({ visibility: "visible" });
+    expect(screen.getByTestId("article-photo-skeleton")).toBeInTheDocument();
   });
 
   it("si la foto da error (la borró el espejo) el tooltip desaparece en vez de quedarse cargando", () => {
