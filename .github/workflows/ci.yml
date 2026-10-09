@@ -67,6 +67,13 @@ jobs:
     services:
       postgres:
         image: postgres:15
+        # El runner descarga el contenedor de SERVICIO antes de ejecutar
+        # ningun paso, asi que un docker/login-action no llega a tiempo: la
+        # unica via de autenticarlo es esta. Sin ella el job muere en 13 s con
+        # "unauthenticated pull rate limit" cuando Docker Hub aprieta la cuota.
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: powershop
           POSTGRES_PASSWORD: powershop
@@ -142,9 +149,26 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
+    env:
+      # A nivel de job para poder usarlo en el `if` del login: los secrets no
+      # se pueden evaluar en un `if` de paso.
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # Sin login, los `FROM` tiran de Docker Hub como anonimo y chocan con su
+      # limite de descargas: el job muere en 16 s con un 429 sin haber
+      # compilado nada, y reintentar no sirve porque el limite va por IP del
+      # runner. release-docker.yml ya hacia login (tiene que empujar), por eso
+      # solo fallaba aqui. Condicionado para que un fork sin secrets siga
+      # construyendo, que para eso el pull anonimo basta cuando no hay cuota
+      # agotada.
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build ETL image (no push)
         uses: docker/build-push-action@v5
         with:
