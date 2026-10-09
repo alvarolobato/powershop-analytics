@@ -258,39 +258,18 @@ def test_el_lock_nunca_borra_un_directorio_ajeno(tmp_path):
     assert not dest.exists()
 
 
-def test_varios_arranques_a_la_vez_sobre_un_lock_huerfano_solo_corre_uno(tmp_path):
-    src = _origen(tmp_path)
-    # Origen grande para que la sincronizacion dure lo bastante para solaparse.
-    for i in range(1500):
-        (src / "3" / f"{300000 + i}.jpg").write_bytes(b"x" * 200)
-    lock = tmp_path / "psfotos-sync.lock"
-    muerto = subprocess.Popen(["true"])
-    muerto.wait()
-    os.symlink(str(muerto.pid), lock)
+def test_el_marcador_cuenta_fotos_no_cualquier_fichero(tmp_path):
+    # Finder deja un .DS_Store al abrir la carpeta, y rsync --delete con
+    # --exclude='*' nunca lo borra: no debe inflar la cifra que ve /api/health.
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+    (dest / "1").mkdir(parents=True)
+    (dest / "1" / ".DS_Store").write_bytes(b"x")
+    (dest / "1" / "parcial.tmp").write_bytes(b"x")
 
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(tmp_path),
-        "FOTOS_LOCK": str(lock),
-        "FOTOS_SRC_DIR": str(src),
-        "FOTOS_DEST": str(tmp_path / "espejo"),
-        "FOTOS_ENV_FILE": str(tmp_path / "no-existe.env"),
-    }
-    procs = [
-        subprocess.Popen(
-            ["bash", str(SCRIPT)],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        for _ in range(5)
-    ]
-    salidas = [p.communicate(timeout=120) + (p.returncode,) for p in procs]
+    r = _run(src, dest)
 
-    hechos = [s for s in salidas if s[2] == 0]
-    assert len(hechos) == 1, [(s[2], s[1][-200:]) for s in salidas]
-    assert not os.path.lexists(lock)
+    assert r.returncode == 0, r.stderr
+    assert json.loads((dest / ".last-sync.json").read_text())["ficheros"] == 6
 
 
 def test_si_rsync_falla_no_hay_marcador_y_el_lock_se_libera(tmp_path):

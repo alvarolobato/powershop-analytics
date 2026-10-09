@@ -166,3 +166,12 @@ indicadores, 0 miniaturas, 0 peticiones de imagen, 0 errores**; `/api/health` si
   drill-down (Fable propone que solo el glifo abra el lightbox).
   Docker local quedó sin poder arrancar contenedores (montaje SMB zombi): el e2e de estos
   últimos cambios lo valida el CI del PR, no una ejecución local.
+- 2026-10-09 — **Ciclos de revisión completados** a petición del dueño: Opus ×3 (código) y Fable
+  ×2 (arquitectura y código), todos desde contexto limpio y de solo lectura. Ninguno encontró una
+  restricción dura rota ni un bloqueante en su último pase. La revisión de código de Fable
+  concluyó que parte de lo añadido en los ciclos de arreglo era más complejo que el problema, y
+  se quitó: el cortacircuitos del espejo (quedó solo el tope de espera por llamada), el segundo
+  lock de reclamo y el reintento exponencial (ahora uno solo). Balance del último commit:
+  +199 / −307 líneas. CI del PR en verde tras cada ciclo, con el e2e de fotos.
+  El dueño canceló el reinicio de esta máquina (lo hará él): Docker local sigue sin arrancar
+  contenedores y `/tmp/psfotos` sigue como montaje zombi.

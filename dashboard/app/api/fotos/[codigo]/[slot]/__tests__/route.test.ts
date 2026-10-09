@@ -157,23 +157,6 @@ describe("GET /api/fotos/[codigo]/[slot]", () => {
     expect(res.headers.get("etag")).toBeNull();
   });
 
-  it("con el espejo sin responder contesta 503 sin caché, no un 404", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.spyOn(fs.promises, "lstat").mockImplementation(() => new Promise(() => {}));
-      for (const esperado of [404, 503]) {
-        const p = pedir("144750", "1", "?w=256");
-        await vi.advanceTimersByTimeAsync(3100);
-        const res = await p;
-        // El primer timeout aún no corta: esa foto es un 404 puntual.
-        expect(res.status).toBe(esperado);
-        if (esperado === 503) expect(res.headers.get("cache-control")).toBe("no-store");
-      }
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("un symlink en el espejo no se sirve", async () => {
     fs.writeFileSync(path.join(raiz, "config.yaml"), "secreto");
     fs.symlinkSync(path.join(raiz, "config.yaml"), path.join(fotosDir, "3", "169.jpg"));

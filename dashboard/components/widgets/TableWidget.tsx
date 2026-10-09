@@ -505,7 +505,6 @@ export function TableWidget({
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- miniatura servida y cacheada por /api/fotos */}
                         <img
-                          key={foto.codigo}
                           src={urlFoto(foto.codigo, foto.slots[0], 160)}
                           alt={`Foto del artículo ${foto.referencia ?? foto.codigo}`}
                           width={40}

@@ -92,8 +92,7 @@ export function resolveArticleColumns(
 
   // Con el artículo ya identificado por el spec, la descripción se busca
   // aunque la heurística sola no hubiera encontrado nada.
-  const descIdx = heur.descIdx ?? primera(columns.map(normalizar), DESCRIPCION);
-  return { codigoIdx, refIdx, descIdx };
+  return { codigoIdx, refIdx, descIdx: primera(columns.map(normalizar), DESCRIPCION) };
 }
 
 /** Los mismos códigos que acepta el servidor (`lib/fotos.ts`). Lo que no

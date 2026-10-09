@@ -455,6 +455,8 @@ En esta fase **solo** se engancha `TableWidget`: es donde viven los códigos y r
    mount_smbfs -o ro,nobrowse "$FOTOS_SMB_URL" /tmp/psfotos
    # FOTOS_HOST_DIR=/tmp/psfotos/PS_Ficheros/Imagenes
    ```
+   > **Desaconsejado tras la revisión**: `FOTOS_DIR` debe ser disco local; la app no trata un disco que deja de contestar. Para ver fotos reales en dev, mejor la opción 3 (copiar unas cuantas a mano).
+   >
    > **Comprobado al implementar (2026-10-09)**: esto vale para una app que corre **en el host** (`npm run dev` con `FOTOS_DIR` apuntando al montaje). Con el dashboard **en contenedor** no: Docker Desktop se queda colgado al hacer bind mount de una ruta que vive sobre smbfs (contenedor en `Created` más de 10 minutos). En producción no aplica, porque el espejo es disco local.
 
    Funciona (verificado como invitado), pero con las latencias de §3.4: el primer hover de cada foto puede tardar segundos. Sirve para validar visualmente, no para medir rendimiento.

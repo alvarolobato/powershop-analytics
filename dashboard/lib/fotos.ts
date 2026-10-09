@@ -5,16 +5,15 @@
  *
  *     {FOTOS_DIR}/{slot}/{codigo}.jpg        slot 1..4 = 1ª..4ª foto
  *
- * y saber si existe es un `stat()` sobre el espejo local. Dos reglas que no se
+ * y saber si existe es un `lstat()` sobre el espejo local. Dos reglas que no se
  * negocian:
  *
  *  - Nunca se lista un directorio. Solo acceso directo por ruta derivada.
  *  - Nada del usuario llega a una ruta sin pasar antes por `CODIGO_RE`.
  *
- * Si `FOTOS_DIR` no está definido o no existe (el espejo solo vive en
- * producción), todo aquí contesta "no hay foto" y la app sigue funcionando sin
- * ellas. Si deja de RESPONDER (un share colgado en dev), salta el
- * cortacircuitos y los endpoints contestan 503 hasta que vuelva.
+ * Si `FOTOS_DIR` no está definido, no existe o no contesta (el espejo solo
+ * vive en producción), todo aquí responde "no hay foto" y la app sigue
+ * funcionando sin ellas.
  */
 
 import { promises as fs } from "fs";
@@ -29,7 +28,8 @@ export type Slot = (typeof SLOTS)[number];
 export const ANCHOS = [160, 256, 512, 1024] as const;
 export type Ancho = (typeof ANCHOS)[number];
 
-/** Máximo de códigos (o de referencias) por petición de lote. */
+/** Máximo de códigos (o de referencias) por petición de lote. El cliente
+ *  trocea con el mismo número (`lib/use-article-photos.ts`); un test los ata. */
 export const MAX_LOTE = 200;
 
 /** Códigos aceptables. Excluye `/`, `\` y todo lo que pueda escapar del
@@ -87,36 +87,12 @@ function cacheDir(): string | null {
   return dir ? path.resolve(dir) : null;
 }
 
-class Timeout extends Error {}
-
 /**
- * Cortacircuitos del espejo. `conTope` deja de ESPERAR una llamada de disco
- * colgada, pero no la cancela: sigue ocupando uno de los 4 hilos del pool de
- * libuv. Con un montaje colgado (FOTOS_DIR sobre un share, en dev) cuatro
- * llamadas bastarían para congelar todo `fs` y `dns` del proceso, y el
- * healthcheck las lanza cada 15 s. Por eso, tras DOS timeouts seguidos, durante
- * un rato no se toca el disco.
- *
- * Mientras está cortado los endpoints contestan 503, no "sin foto": el cliente
- * cachea 10 minutos un "sin foto", y un corte es "no lo sé".
+ * Deja de ESPERAR una llamada de disco pasado el tope (no la cancela: Node no
+ * puede). Basta para que una petición no se quede colgada si `FOTOS_DIR` cae
+ * sobre un montaje que no contesta, cosa que solo puede pasar en dev: el
+ * espejo de producción es disco local.
  */
-const CORTE_MS = 30_000;
-const TIMEOUTS_PARA_CORTAR = 2;
-let timeoutsSeguidos = 0;
-let espejoCortadoHasta = 0;
-
-/** `true` mientras el espejo se da por no disponible. */
-export function espejoCortado(): boolean {
-  return Date.now() < espejoCortadoHasta;
-}
-
-/** Solo para tests. */
-export function __resetFotos(): void {
-  espejoCortadoHasta = 0;
-  timeoutsSeguidos = 0;
-  estadoCache = null;
-}
-
 function conTope<T>(promesa: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   let terminada = false;
@@ -127,27 +103,20 @@ function conTope<T>(promesa: Promise<T>, ms: number): Promise<T> {
   vigilada.catch(() => {});
   const tope = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      // Si el bucle de eventos estuvo bloqueado (una pausa de GC, un render
-      // pesado), este timer salta ANTES que el callback de una llamada que ya
-      // había terminado. Se le da una vuelta al bucle: si para entonces está
-      // resuelta, el disco no tenía nada que ver.
+      // Si el bucle de eventos estuvo bloqueado, este timer salta antes que el
+      // callback de una llamada que ya había terminado. Una vuelta más al
+      // bucle y, si está resuelta, no es un timeout.
       setImmediate(() => {
-        if (terminada) return;
-        timeoutsSeguidos++;
-        if (timeoutsSeguidos >= TIMEOUTS_PARA_CORTAR) {
-          espejoCortadoHasta = Date.now() + CORTE_MS;
-        }
-        reject(new Timeout("timeout"));
+        if (!terminada) reject(new Error("timeout"));
       });
     }, ms);
   });
   return Promise.race([vigilada, tope]).finally(() => clearTimeout(timer));
 }
 
-/** Una llamada de disco que contesta (aunque sea "no existe") prueba que el
- *  espejo responde. */
-function espejoResponde(): void {
-  timeoutsSeguidos = 0;
+/** Solo para tests. */
+export function __resetFotos(): void {
+  estadoCache = null;
 }
 
 /** Localiza la foto en el espejo. `null` si el código o el slot no son
@@ -159,7 +128,6 @@ export async function localizarFoto(codigo: string, slot: number): Promise<Foto 
   if (!raiz) return null;
 
   for (const ext of EXTENSIONES) {
-    if (espejoCortado()) return null;
     // 2. La ruta se compone solo con valores ya validados.
     const ruta = path.resolve(path.join(raiz, String(slot), codigo + ext));
     // 3. Cinturón redundante: la ruta resuelta cae dentro del espejo.
@@ -168,13 +136,13 @@ export async function localizarFoto(codigo: string, slot: number): Promise<Foto 
       // lstat, no stat: un enlace simbólico dentro del espejo NO es una foto.
       // El cinturón de arriba es léxico y no vería adónde apunta.
       const st = await conTope(fs.lstat(ruta), STAT_TIMEOUT_MS);
-      espejoResponde();
       if (st.isFile()) return { ruta, bytes: st.size, mtimeMs: Math.trunc(st.mtimeMs) };
     } catch (err) {
       // ENOENT es lo normal (el 84 % de los artículos no tiene foto). Cualquier
       // otro error (share desmontado, permisos) también es "no hay foto".
-      if (err instanceof Timeout) return null;
-      espejoResponde();
+      // Un timeout no: si el disco no contesta, no se insiste con las otras
+      // extensiones.
+      if (err instanceof Error && err.message === "timeout") return null;
     }
   }
   return null;
@@ -235,36 +203,33 @@ export async function estadoEspejo(): Promise<EstadoEspejo | null> {
   if (estadoCache && estadoCache.raiz === raiz && estadoCache.hasta > Date.now()) {
     return estadoCache.valor;
   }
-  const leido = await leerEstadoEspejo(raiz);
-  // "No lo sé" (corte o timeout) no se cachea: se confundiría con "nunca
-  // sincronizado" durante un minuto.
-  if (leido.fiable) estadoCache = { raiz, hasta: Date.now() + 60_000, valor: leido.valor };
-  return leido.valor;
+  const valor = await leerEstadoEspejo(raiz);
+  estadoCache = { raiz, hasta: Date.now() + 60_000, valor };
+  return valor;
 }
 
-async function leerEstadoEspejo(raiz: string): Promise<{ valor: EstadoEspejo; fiable: boolean }> {
+async function leerEstadoEspejo(raiz: string): Promise<EstadoEspejo> {
   const vacio: EstadoEspejo = { last_sync: null, horas: null, ficheros: null };
-  if (espejoCortado()) return { valor: vacio, fiable: false };
   try {
     const texto = await conTope(fs.readFile(path.join(raiz, ".last-sync.json"), "utf8"), STAT_TIMEOUT_MS);
     const j = JSON.parse(texto.slice(0, 1000)) as { last_sync?: unknown; ficheros?: unknown };
     const t = typeof j.last_sync === "string" ? Date.parse(j.last_sync) : NaN;
-    if (!Number.isFinite(t)) return { valor: vacio, fiable: true };
+    if (!Number.isFinite(t)) return vacio;
     return {
-      fiable: true,
-      valor: {
-        last_sync: new Date(t).toISOString(),
-        horas: Math.max(0, Math.round((Date.now() - t) / 360_000) / 10),
-        ficheros: typeof j.ficheros === "number" ? j.ficheros : null,
-      },
+      last_sync: new Date(t).toISOString(),
+      horas: Math.max(0, Math.round((Date.now() - t) / 360_000) / 10),
+      ficheros: typeof j.ficheros === "number" ? j.ficheros : null,
     };
-  } catch (err) {
-    return { valor: vacio, fiable: !(err instanceof Timeout) };
+  } catch {
+    return vacio;
   }
 }
 
+/** Tope de la lectura de un original (~280 KB de media). */
+const LECTURA_TIMEOUT_MS = 15_000;
+
 export async function leerOriginal(foto: Foto): Promise<Imagen> {
-  return { data: await fs.readFile(foto.ruta), tipo: "image/jpeg" };
+  return { data: await conTope(fs.readFile(foto.ruta), LECTURA_TIMEOUT_MS), tipo: "image/jpeg" };
 }
 
 /** Miniaturas en curso: dos peticiones de la misma no la generan dos veces. */

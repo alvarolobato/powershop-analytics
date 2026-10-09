@@ -296,10 +296,14 @@ describe("TableWidget — hover de fotos", () => {
   });
 
   it("si el endpoint falla la tabla se pinta igual, sin fotos y sin error", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    const roto = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
+    vi.stubGlobal("fetch", roto);
     render(<TableWidget widget={{ ...base, articulo_codigo_col: "codigo" }} data={articulos} />);
-    await waitFor(() => expect(screen.getByText("V26212484")).toBeInTheDocument());
-    await Promise.resolve();
+    await waitFor(() => expect(roto).toHaveBeenCalled());
+    // Que el rechazo recorra todo el camino del hook antes de mirar.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByText("V26212484")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(4);
     expect(screen.queryAllByTestId("article-photo-trigger")).toHaveLength(0);
     expect(screen.queryByText(/error/i)).toBeNull();
   });

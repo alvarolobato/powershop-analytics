@@ -115,32 +115,15 @@ if ! ln -s "$$" "$LOCK" 2>/dev/null; then
         echo "sync-fotos: ya hay una sincronizacion en curso (pid $dueno, $LOCK)" >&2
         exit 1
     fi
-    # Reclamar es una seccion critica: dos arranques que ven el mismo lock
-    # muerto no pueden quitarlo los dos (el segundo se llevaria el lock recien
-    # puesto por el primero). Un segundo enlace, tambien atomico, la protege, y
-    # DENTRO se vuelve a mirar quien es el dueno.
-    if ! ln -s "$$" "$LOCK.reclamo" 2>/dev/null; then
-        otro="$(readlink "$LOCK.reclamo" 2>/dev/null || true)"
-        # Un reclamo que quedo a medias (se muere en esta ventana de
-        # microsegundos) se limpia para la siguiente ejecucion.
-        lock_vivo "$otro" || rm -f "$LOCK.reclamo"
-        echo "sync-fotos: otra ejecucion esta reclamando el lock; salgo" >&2
-        exit 1
-    fi
-    dueno="$(readlink "$LOCK" 2>/dev/null || true)"
-    if lock_vivo "$dueno"; then
-        rm -f "$LOCK.reclamo"
-        echo "sync-fotos: ya hay una sincronizacion en curso (pid $dueno, $LOCK)" >&2
-        exit 1
-    fi
     echo "sync-fotos: lock huerfano de un proceso que ya no existe (pid ${dueno:-desconocido}); lo reclamo" >&2
+    # Sin mas ceremonia: el job corre una vez al dia. Si dos arranques vieran el
+    # mismo lock muerto en el mismo instante, el ln de uno falla y sale; en el
+    # peor caso dos rsync al mismo destino no pierden datos.
     rm -f "$LOCK"
     if ! ln -s "$$" "$LOCK" 2>/dev/null; then
-        rm -f "$LOCK.reclamo"
-        echo "sync-fotos: no pude tomar el lock $LOCK; salgo" >&2
+        echo "sync-fotos: otra ejecucion ha tomado el lock; salgo" >&2
         exit 1
     fi
-    rm -f "$LOCK.reclamo"
 fi
 MOUNT_POINT=""
 MONTADO=0
@@ -241,7 +224,9 @@ for d in 1 2 3 4; do
     RSYNC_PID=$!
     wait "$RSYNC_PID"
     RSYNC_PID=""
-    n="$(find "$FOTOS_DEST/$d" -mindepth 1 -maxdepth 1 -type f | wc -l)"
+    # Solo fotos, con el mismo criterio que el guard: un .DS_Store de Finder o
+    # un temporal de rsync no son ficheros del espejo.
+    n="$(contar_fotos "$FOTOS_DEST/$d")"
     copiados=$((copiados + n))
 done
 

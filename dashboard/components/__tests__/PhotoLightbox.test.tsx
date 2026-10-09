@@ -121,6 +121,17 @@ describe("PhotoLightbox", () => {
     expect(screen.getByTestId("photo-lightbox-counter")).toHaveTextContent("2/2");
   });
 
+  it("si una revalidación quita un slot con el diálogo abierto, el contador no dice 3/2", () => {
+    const onClose = vi.fn();
+    const { rerender } = render(<PhotoLightbox codigo="144750" slots={[1, 2, 3]} inicial={3} onClose={onClose} />);
+    expect(screen.getByTestId("photo-lightbox-counter")).toHaveTextContent("3/3");
+
+    rerender(<PhotoLightbox codigo="144750" slots={[1, 2]} inicial={3} onClose={onClose} />);
+
+    expect(screen.getByTestId("photo-lightbox-counter")).toHaveTextContent("2/2");
+    expect(foto()).toHaveAttribute("src", "/api/fotos/144750/2?w=1024");
+  });
+
   it("abre en el slot inicial pedido", () => {
     abrir({ inicial: 3 });
     expect(foto()).toHaveAttribute("src", "/api/fotos/144750/3?w=1024");
