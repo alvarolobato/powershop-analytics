@@ -418,7 +418,9 @@ def test_una_url_smb_mal_formada_para_antes_de_tocar_nada(tmp_path, url):
     # se valida antes, el fallo seria un error de rclone y no uno legible.
     falso = tmp_path / "bin"
     falso.mkdir()
-    (falso / "rclone").write_text("#!/bin/sh\necho 'NO DEBERIA EJECUTARSE' >&2\nexit 0\n")
+    (falso / "rclone").write_text(
+        "#!/bin/sh\necho 'NO DEBERIA EJECUTARSE' >&2\nexit 0\n"
+    )
     (falso / "rclone").chmod(0o755)
 
     r = _run_smb(tmp_path, url, FOTOS_RCLONE=str(falso / "rclone"))
