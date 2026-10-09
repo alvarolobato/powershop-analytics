@@ -63,6 +63,18 @@ const SPEC = {
       articulo_codigo_col: "codigo",
     },
     {
+      // Sin columna de código: obliga a traducir Referencia → código con la
+      // consulta real a ps_articulos. Los tests unitarios la simulan; aquí
+      // corre contra Postgres (D-041).
+      id: "solo-ref",
+      type: "table",
+      title: "Artículos solo por referencia",
+      sql:
+        `SELECT ccrefejofacm AS "Referencia", descripcion AS "Descripción", precio1 AS "PVP" ` +
+        `FROM ps_articulos WHERE codigo IN (${enLista(CON_Y_SIN)}) ORDER BY codigo`,
+      articulo_ref_col: "Referencia",
+    },
+    {
       id: "fotos-pedidas",
       type: "table",
       title: "Artículos con fotos a la vista",
@@ -285,6 +297,29 @@ test.describe("fotos de artículo — escritorio", () => {
     await expect(page.getByRole("button", { name: "Cerrar foto" })).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(trigger).toBeFocused();
+  });
+
+  test("solo con la Referencia: se traduce a código contra Postgres y la foto es la del artículo", async ({
+    page,
+    request,
+  }) => {
+    // La consulta de verdad, sin simular.
+    const lote = await request.post("/api/articulos/fotos", { data: { refs: [refConFotos, "NO-EXISTE"] } });
+    expect(lote.status()).toBe(200);
+    expect((await lote.json()).porRef).toEqual({ [refConFotos]: { codigo: "ART00001", slots: [1, 2, 3] } });
+
+    await abrirPanel(page);
+    const soloRef = tabla(page, "Artículos solo por referencia");
+    await expect(soloRef.locator("tbody tr")).toHaveCount(CON_Y_SIN.length);
+    // Referencia y descripción con indicador en los 2 artículos con foto; nada en el tercero.
+    await expect(soloRef.getByTestId("article-photo-glyph")).toHaveCount(4);
+
+    await soloRef.locator("tbody tr", { hasText: refConFotos }).getByText(refConFotos).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.locator("img")).toHaveAttribute("src", "/api/fotos/ART00001/1?w=1024");
+    await expect(page.getByTestId("photo-lightbox-counter")).toHaveText("1/3");
+    await page.keyboard.press("Escape");
+    await sinSuperficieDeError(page);
   });
 
   test("una tabla sin fotos no muestra indicadores ni pide una sola imagen", async ({ page }) => {

@@ -27,12 +27,17 @@ export interface ArticleColumns {
 
 const SIN_COLUMNAS: ArticleColumns = { codigoIdx: null, refIdx: null, descIdx: null };
 
-/** Nombres que dicen "código de artículo" sin ambigüedad. */
+/**
+ * Nombres que dicen "código de artículo" sin ambigüedad.
+ *
+ * `codigo` y `cod` a secas NO están, a propósito: pueden ser el código de una
+ * tienda, un cliente o una familia, y hay artículos con códigos como `169`.
+ * Ni siquiera junto a una Referencia: una tabla puede traer el código de la
+ * tienda y la referencia del artículo. La heurística los ignora; si la tabla
+ * trae Referencia se resuelve por ella, que sí es inequívoca, y si de verdad
+ * es el código del artículo lo dice el spec (`articulo_codigo_col`).
+ */
 const CODIGO_EXPLICITO = new Set(["codigo_articulo", "cod_articulo", "articulo_codigo"]);
-/** Nombres que podrían ser el código de cualquier cosa (tienda, cliente,
- *  familia…). Solo cuentan si la tabla trae además una Referencia, que es lo
- *  que demuestra que las filas son artículos. */
-const CODIGO_AMBIGUO = new Set(["codigo", "cod"]);
 const REFERENCIA = new Set(["referencia", "ref", "ccrefejofacm"]);
 const DESCRIPCION = new Set(["descripcion", "descripcion_articulo"]);
 
@@ -55,9 +60,7 @@ function primera(nombres: string[], candidatos: Set<string>): number | null {
 export function detectArticleColumns(columns: string[]): ArticleColumns {
   const nombres = columns.map(normalizar);
   const refIdx = primera(nombres, REFERENCIA);
-  const codigoIdx =
-    primera(nombres, CODIGO_EXPLICITO) ??
-    (refIdx !== null ? primera(nombres, CODIGO_AMBIGUO) : null);
+  const codigoIdx = primera(nombres, CODIGO_EXPLICITO);
   if (codigoIdx === null && refIdx === null) return SIN_COLUMNAS;
   return { codigoIdx, refIdx, descIdx: primera(nombres, DESCRIPCION) };
 }

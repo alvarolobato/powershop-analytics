@@ -57,6 +57,14 @@ if [ -n "$FOTOS_DIR" ]; then
   else
     echo "[fotos] $FOTOS_DIR no tiene fotos — el dashboard funciona igual, sin ellas."
   fi
+  # sharp trae binarios nativos por plataforma (musl en esta imagen). Si no
+  # cargara, las miniaturas se servirian como el JPEG original: funciona, pero
+  # cada hover pesa ~280 KB en vez de ~15. Que se vea al arrancar.
+  if node -e "require('sharp')" >/dev/null 2>&1; then
+    echo "[fotos] sharp OK"
+  else
+    echo "[fotos] WARNING: sharp no carga en esta imagen — las miniaturas se sirven como el original."
+  fi
   # Se prueba escribiendo de verdad: en Docker Desktop `[ -w ]` da falso sobre
   # un bind mount en el que luego las escrituras funcionan.
   if [ -n "$FOTOS_CACHE_DIR" ] && ! { mkdir -p "$FOTOS_CACHE_DIR" 2>/dev/null && : 2>/dev/null > "$FOTOS_CACHE_DIR/.probe" && rm -f "$FOTOS_CACHE_DIR/.probe"; }; then

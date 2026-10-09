@@ -237,8 +237,11 @@ Notes:
 - If a run aborts with "lista N fotos y el espejo tiene M", the share listed far fewer photos than the mirror holds (more than 10 % and more than 20 fewer). That is the guard against a half-dead share wiping the mirror. If photos really were deleted on the server, run once by hand with `FOTOS_ALLOW_SHRINK=1 bash ~/powershop/scripts/sync-fotos.sh`.
 - Only one sync runs at a time (lock at `$TMPDIR/psfotos-sync.lock`). If a run was killed hard and the next one says "ya hay una sincronizacion en curso", remove that directory.
 - Freshness is 24 h: a photo uploaded today shows up tomorrow. For 6-hourly runs, turn `StartCalendarInterval` in the plist into an array of four entries.
-- It is a LaunchAgent, so it only runs while the user is logged in — same as the token-sync agent.
-- Thumbnails are generated on first view and cached in `~/powershop/data/dashboard/fotos-cache/` (worst case ~380 MB). The cache is disposable: delete it any time.
+- It is a LaunchAgent, so it only runs while the user is logged in. After a reboot with nobody logged in the stack comes back (D-065) but the mirror stops refreshing until someone logs in; `horas` in `/api/health` is how you notice. Accepted in D-068: stale photos are cosmetic, and a LaunchDaemon would have to mount the share and reach Docker Desktop's socket as root.
+- **Is the mirror fresh?** `curl -s localhost:4000/api/health` returns `"fotos": {"last_sync": ..., "horas": ..., "ficheros": ...}`. `horas` well above 24 means the nightly job is failing; look at the log. `"fotos": null` means the container has no mirror configured.
+- The first copy takes hours: keep the Mac awake for it (`caffeinate -dims` in another terminal) and stay logged in.
+- Thumbnails are generated on first view and cached in `~/powershop/data/dashboard/fotos-cache/`. Only what somebody actually looks at gets cached (hover 256 px ≈ 8 KB, lightbox 1024 px ≈ 80 KB, table thumbnail 160 px); warming every photo at every size would be on the order of 1 GB. Thumbnails of overwritten photos are never purged. The cache is disposable: delete it any time.
+- On start the dashboard logs `[fotos] sharp OK` (or a warning). Check it once after the first deploy with `ps prod logs dashboard | grep fotos`.
 - To uninstall: `launchctl bootout gui/$(id -u)/com.powershop.fotos-sync && rm ~/Library/LaunchAgents/com.powershop.fotos-sync.plist`.
 
 ### Step 4 — Verify the full stack

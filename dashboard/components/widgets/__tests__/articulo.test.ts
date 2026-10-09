@@ -14,21 +14,21 @@ describe("detectArticleColumns", () => {
     ["ref", ["ref", "uds"], { codigoIdx: null, refIdx: 0, descIdx: null }],
     ["ccrefejofacm", ["ccrefejofacm"], { codigoIdx: null, refIdx: 0, descIdx: null }],
     [
-      "código + referencia + descripción",
+      "código + referencia + descripción: manda la referencia, el 'código' a secas se ignora",
       ["Código", "Referencia", "Descripción", "Importe"],
-      { codigoIdx: 0, refIdx: 1, descIdx: 2 },
+      { codigoIdx: null, refIdx: 1, descIdx: 2 },
     ],
     [
       "sin acentos y en otro orden",
       ["descripcion", "referencia", "codigo"],
-      { codigoIdx: 2, refIdx: 1, descIdx: 0 },
+      { codigoIdx: null, refIdx: 1, descIdx: 0 },
     ],
-    ["cod + ref", ["cod", "ref"], { codigoIdx: 0, refIdx: 1, descIdx: null }],
+    ["cod + ref", ["cod", "ref"], { codigoIdx: null, refIdx: 1, descIdx: null }],
     ["codigo_articulo solo", ["codigo_articulo", "Stock"], { codigoIdx: 0, refIdx: null, descIdx: null }],
     ["Cód. Artículo", ["Cód. Artículo", "Stock"], { codigoIdx: 0, refIdx: null, descIdx: null }],
     ["cod_articulo + descripción", ["cod_articulo", "Descripción"], { codigoIdx: 0, refIdx: null, descIdx: 1 }],
     [
-      "el explícito gana al ambiguo",
+      "solo cuenta el explícito",
       ["codigo", "codigo_articulo", "referencia"],
       { codigoIdx: 1, refIdx: 2, descIdx: null },
     ],
@@ -45,6 +45,15 @@ describe("detectArticleColumns", () => {
     expect(detectArticleColumns(["Código", "Tienda", "Ventas"])).toEqual(NADA);
     // Ni con descripción: una tabla de familias también trae código + descripción.
     expect(detectArticleColumns(["Código", "Descripción"])).toEqual(NADA);
+  });
+
+  it("código de TIENDA + referencia de artículo: el código no se toma por el del artículo", () => {
+    // Si se tomara, la tienda 169 enseñaría la foto del artículo 169.
+    expect(detectArticleColumns(["Código", "Tienda", "Referencia", "Uds"])).toEqual({
+      codigoIdx: null,
+      refIdx: 2,
+      descIdx: null,
+    });
   });
 
   it("no se deja engañar por nombres que solo contienen la palabra", () => {
