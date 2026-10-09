@@ -79,14 +79,16 @@ const WIDGET_TYPES = `
 > pida quitar las barras. Con MÁS DE 8 columnas numéricas se desactivan solas
 > (con 8 exactas todavía se pintan), así que normalmente no hace falta ponerlo.
 
-> **Fotos de artículo en \`table\`**: cuando la tabla liste artículos, incluye en el
-> SQL la columna \`codigo\` de \`ps_articulos\` (además de Referencia y Descripción) y
-> pon \`"articulo_codigo_col": "codigo"\` (el nombre exacto de esa columna en el
-> resultado). Con eso, al pasar el ratón por el código, la referencia o la
-> descripción aparece la foto y un clic la amplía. \`articulo_ref_col\` es la
-> alternativa cuando solo hay Referencia. \`"mostrar_fotos": true\` añade una columna
-> de miniaturas: úsalo SOLO si el usuario pide ver las fotos. No hay ninguna
-> columna de foto que consultar: no la busques en el esquema.
+> **Fotos de artículo en \`table\`**: cuando la tabla liste artículos concretos, el
+> resultado debe traer AL MENOS UNO de sus identificadores, para que la foto pueda
+> resolverse: la Referencia (\`ccrefejofacm\`) o el \`codigo\` de \`ps_articulos\`. No
+> hace falta añadir \`codigo\` si ya está la Referencia. Indica cuál es con
+> \`"articulo_ref_col": "Referencia"\` y/o \`"articulo_codigo_col": "codigo"\` (el nombre
+> exacto de la columna en el resultado). Con eso, al pasar el ratón por el código, la
+> referencia o la descripción aparece la foto y un clic la amplía.
+> \`"mostrar_fotos": true\` añade una columna de miniaturas: úsalo SOLO si el usuario
+> pide ver las fotos. No hay ninguna columna de foto que consultar: no la busques en
+> el esquema.
 
 > **Note**: \`ranked_bars\` is **data-driven** — supply the \`items\` array directly; it does **not** take a \`sql\` field. \`bar_chart\` is the SQL-driven equivalent and renders **vertical bars only** (there is no \`stacked\` or \`horizontal\` variant in the renderer).
 
