@@ -13,10 +13,12 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-export const E2E_FOTOS_DIR =
-  process.env.FOTOS_DIR ?? path.join(os.tmpdir(), "powershop-e2e-fotos", "espejo");
-export const E2E_FOTOS_CACHE_DIR =
-  process.env.FOTOS_CACHE_DIR ?? path.join(os.tmpdir(), "powershop-e2e-fotos", "cache");
+// SIEMPRE un directorio propio en tmp. Nunca se hereda FOTOS_DIR del entorno:
+// `sembrarFotos()` borra los directorios 1..4, y quien tenga FOTOS_DIR
+// apuntando a un espejo de verdad (o a uno parcial en dev) lo perdería al
+// lanzar Playwright desde la misma shell.
+export const E2E_FOTOS_DIR = path.join(os.tmpdir(), "powershop-e2e-fotos", "espejo");
+export const E2E_FOTOS_CACHE_DIR = path.join(os.tmpdir(), "powershop-e2e-fotos", "cache");
 
 /** JPEG de 96×96 (638 bytes), el mismo del slot 1 de scripts/seed-fotos-dev.sh. */
 const JPEG_MINIMO = Buffer.from(
@@ -35,6 +37,10 @@ export const SIN_FOTO = ["ART00003", "ART00004", "ART00005"];
 
 /** Deja `E2E_FOTOS_DIR` exactamente con `FOTOS_SEMBRADAS`. Idempotente. */
 export function sembrarFotos(): void {
+  // Cinturón: el marcador lo escribe sync-fotos.sh. Si está, esto es un espejo real.
+  if (fs.existsSync(path.join(E2E_FOTOS_DIR, ".last-sync.json"))) {
+    throw new Error(`${E2E_FOTOS_DIR} parece un espejo real (.last-sync.json); no lo toco`);
+  }
   for (const slot of [1, 2, 3, 4]) {
     const dir = path.join(E2E_FOTOS_DIR, String(slot));
     fs.rmSync(dir, { recursive: true, force: true });

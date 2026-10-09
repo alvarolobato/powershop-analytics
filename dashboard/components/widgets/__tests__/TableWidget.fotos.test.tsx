@@ -143,19 +143,36 @@ describe("TableWidget — hover de fotos", () => {
     expect(disparadores(fila("V26212484"))).toHaveLength(1);
   });
 
-  it("heurística: una tabla antigua con 'codigo' + 'Referencia' tiene hover sin tocar el spec", async () => {
+  it("heurística: una tabla antigua con 'codigo' + 'Referencia' tiene hover por la referencia", async () => {
     render(<TableWidget widget={base} data={articulos} />);
     await cargado();
-    expect(disparadores(fila("V26212484"))).toHaveLength(3);
+    // Referencia y descripción; el 'codigo' a secas no se toca (podría ser de otra cosa).
+    expect(disparadores(fila("V26212484"))).toHaveLength(2);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.codigos).toEqual([]);
+    expect(body.refs.sort()).toEqual(["V26000169", "V26112233", "V26212484"]);
   });
 
-  it("el código de artículo se pinta como identificador, no como número ni ranking", async () => {
-    render(<TableWidget widget={base} data={articulos} />);
+  it("un 'Código' de tienda igual al código de un artículo con foto NO enseña esa foto", async () => {
+    // La tienda 144750 no es el artículo 144750.
+    const data: WidgetData = {
+      columns: ["Código", "Tienda", "Referencia", "Uds"],
+      rows: [["144750", "LISBOA", "V26000169", 3]],
+    };
+    render(<TableWidget widget={base} data={data} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryAllByTestId("article-photo-trigger")).toHaveLength(0);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).codigos).toEqual([]);
+  });
+
+  it("con articulo_codigo_col el código se pinta como identificador, no como número ni ranking", async () => {
+    render(<TableWidget widget={{ ...base, articulo_codigo_col: "codigo" }} data={articulos} />);
     await cargado();
     // Ni "144.750" (separador de miles) ni una barra de calor.
     expect(screen.getByText("144750")).toBeInTheDocument();
     expect(screen.queryByText("144.750")).toBeNull();
-    // "169" es < 1000 y va en la primera columna: antes habría sido un ranking.
+    // "169" es < 1000 y va en la primera columna: sin el spec sería un ranking.
     expect(screen.getByText("169")).toBeInTheDocument();
     const th = screen.getByRole("columnheader", { name: /codigo/ });
     expect(th).toHaveStyle({ textAlign: "left" });

@@ -148,7 +148,7 @@ Reglas que no se negocian:
 
 1. **Por defecto no se muestran fotos**, solo el hover. La columna de miniaturas sale únicamente con `mostrar_fotos: true` en el spec, que el LLM pone solo si el usuario lo pide.
 2. **La descripción no identifica un artículo.** Recibe hover, pero resuelto por el código (o la referencia) de su misma fila. Sin código ni referencia no hay hover.
-3. **Un `codigo` a secas no es de artículo** salvo que la tabla traiga también una Referencia o que el spec lo diga: puede ser el código de una tienda o de una familia, y hay artículos con códigos como `169`.
+3. **Un `codigo` a secas nunca se toma por el del artículo** salvo que el spec lo diga (`articulo_codigo_col`): puede ser el código de una tienda o de una familia, y hay artículos con códigos como `169`. Sin spec se resuelve por la columna `referencia` o por `codigo_articulo`.
 4. **Las fotos son un adorno.** Sin espejo, con el share caído o con el endpoint fallando, la app se ve igual pero sin fotos. Nunca un error en pantalla.
 5. `Articulos.Path*` y `TieneImagen` no se consultan: no dicen nada sobre qué fotos existen.
 

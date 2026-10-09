@@ -152,6 +152,39 @@ export async function slotsDeFotos(codigos: string[]): Promise<Record<string, Sl
   return out;
 }
 
+export interface EstadoEspejo {
+  /** Última sincronización correcta (ISO 8601), o `null` si no hay marcador. */
+  last_sync: string | null;
+  /** Horas desde entonces. `null` si no hay marcador. */
+  horas: number | null;
+  ficheros: number | null;
+}
+
+/**
+ * Frescura del espejo, leída del marcador que escribe `sync-fotos.sh` solo
+ * cuando termina bien. `null` si no hay espejo configurado. Es lo único que
+ * hace visible un job nocturno que lleva semanas fallando: sin esto el espejo
+ * se congela y nadie lo nota. Un fichero concreto, sin listar nada.
+ */
+export async function estadoEspejo(): Promise<EstadoEspejo | null> {
+  const raiz = fotosDir();
+  if (!raiz) return null;
+  const vacio: EstadoEspejo = { last_sync: null, horas: null, ficheros: null };
+  try {
+    const texto = await conTope(fs.readFile(path.join(raiz, ".last-sync.json"), "utf8"), STAT_TIMEOUT_MS);
+    const j = JSON.parse(texto.slice(0, 1000)) as { last_sync?: unknown; ficheros?: unknown };
+    const t = typeof j.last_sync === "string" ? Date.parse(j.last_sync) : NaN;
+    if (!Number.isFinite(t)) return vacio;
+    return {
+      last_sync: new Date(t).toISOString(),
+      horas: Math.max(0, Math.round((Date.now() - t) / 360_000) / 10),
+      ficheros: typeof j.ficheros === "number" ? j.ficheros : null,
+    };
+  } catch {
+    return vacio;
+  }
+}
+
 export async function leerOriginal(foto: Foto): Promise<Imagen> {
   return { data: await fs.readFile(foto.ruta), tipo: "image/jpeg" };
 }

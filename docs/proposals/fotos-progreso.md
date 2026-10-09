@@ -154,3 +154,15 @@ indicadores, 0 miniaturas, 0 peticiones de imagen, 0 errores**; `/api/health` si
   antes), Postgres de e2e eliminado. `FOTOS_SMB_URL` añadido al .env centralizado (copia previa
   en `.env.pre-fotos`). OJO: `/tmp/psfotos` quedó como montaje zombi tras el unmount forzado.
 - 2026-10-09 — PR #984 abierto. Criterio de terminado cumplido. Lazo detenido.
+- 2026-10-09 — **Revisiones independientes** (el dueño preguntó; no se habían hecho). Dos, desde
+  contexto limpio y de solo lectura: Opus sobre el código y Fable sobre arquitectura. Ninguna
+  encontró una restricción dura rota. Arreglado a raíz de ellas: TTL que borraba los
+  indicadores a los 10 min; estado del hover heredado al reordenar; guard del rsync repetido +
+  tope de encogimiento (D-063) + lock; destino unificado en FOTOS_HOST_DIR; lstat (symlinks);
+  lote sin códigos inválidos ni prototipo; tope de 3 miniaturas a la vez; una parada de Tab por
+  fila; la heurística ya NUNCA toma un `codigo` a secas; e2e de solo-referencia contra Postgres
+  real; la fixture de e2e no hereda FOTOS_DIR; `/api/health` informa de la frescura del espejo.
+  NO cambiado, decisión del dueño: que el click sobre el texto abra la foto en vez del
+  drill-down (Fable propone que solo el glifo abra el lightbox).
+  Docker local quedó sin poder arrancar contenedores (montaje SMB zombi): el e2e de estos
+  últimos cambios lo valida el CI del PR, no una ejecución local.

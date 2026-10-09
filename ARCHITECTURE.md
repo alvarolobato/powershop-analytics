@@ -132,6 +132,8 @@ User: "Añade el margen por familia"
 | `DASHBOARD_LLM_CLI_*` | Dashboard App | CLI binary, driver, timeout, capture cap — see `.env.example` |
 | `DASHBOARD_AGENTIC_*` | Dashboard App | Tool-calling limits and kill switch — see [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md) |
 | `DASHBOARD_PORT` | Dashboard App | HTTP port (default: 4000) |
+| `FOTOS_HOST_DIR` | Dashboard App + photo-mirror job | Host dir of the article-photo mirror; mounted at `/fotos` (`FOTOS_DIR`) — see [D-068](docs/decisions/D-068-fotos-por-convencion-de-ruta.md) |
+| `FOTOS_SMB_URL` | Photo-mirror job (prod host) | PowerShop file share the mirror is copied from |
 | `DASHBOARD_CONTEXT_DIR` | Dashboard App | Dir for per-turn context-log files (default `/app/data/conversations`; bind-mounted) — see [D-039](docs/decisions/D-039-context-log-files.md) |
 
 ## Data Persistence
@@ -141,6 +143,8 @@ User: "Añade el margen por familia"
 | PostgreSQL data | `./data/postgres/` | Yes | Yes (bind mount) |
 | Dashboard data | PostgreSQL tables | Yes | Yes (in PG bind mount) |
 | Conversation context logs | `./data/dashboard/conversations/` | Yes | Yes (bind mount) |
+| Article-photo mirror (prod only) | `./data/fotos/` (`FOTOS_HOST_DIR`) | Yes | Yes (bind mount, `:ro` in the container) |
+| Article-photo thumbnail cache | `./data/dashboard/fotos-cache/` | Yes | Yes (bind mount; disposable) |
 
 Per-turn context logs (the exact payload sent to the LLM) live in files on the
 dashboard's data volume — one folder per conversation, one file per turn. Postgres
@@ -160,6 +164,8 @@ Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat
 `PROD_HOST` and `PROD_PATH` in `~/.config/powershop-analytics/.env` are **local-operator** config — they tell the `ps prod *` CLI on your local Mac where to SSH. The prod Mac itself doesn't need these variables.
 
 The launchd agent (`scripts/launchd/com.powershop.claude-token-sync.plist.template`) mirrors the macOS Keychain entry `Claude Code-credentials` into `~/.claude/.credentials.json` every 5 minutes so the dashboard container can read it without any manual intervention. See [D-025](docs/decisions/D-025-oauth-single-refresher.md) for the single-refresher constraint.
+
+A second launchd agent, `com.powershop.fotos-sync` (`scripts/install-fotos-sync-launchd.sh`), mirrors the article photos from the PowerShop file share into `./data/fotos/` daily at 01:00. Photos are found by deriving `{slot}/{codigo}.jpg` from the article code — no table, no ETL step. See [D-068](docs/decisions/D-068-fotos-por-convencion-de-ruta.md).
 
 **Agent workflow skills:**
 - [docs/skills/release.md](docs/skills/release.md) — cut a release (major/minor/patch) and build the Docker images

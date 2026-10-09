@@ -32,6 +32,10 @@ MIN_FILAS = 1000
 # Tope de reloj. Si 4D cierra el socket a mitad de lectura, p4d se queda girando
 # en C al 100 % de CPU para siempre (D-067) y ningun manejador de Python llega a
 # ejecutarse; la accion por defecto de SIGALRM si mata el proceso.
+# Es una excepcion deliberada a la letra de D-067 ("toda llamada a p4d va dentro
+# de vigilar()"): el script se inyecta por stdin y no importa nada del paquete
+# del ETL, para no depender de su estructura interna. Aqui no hay reintento que
+# proteger: matar el proceso es justo lo que se quiere.
 TIMEOUT_S = 900
 
 MAX_LISTADAS = 50
