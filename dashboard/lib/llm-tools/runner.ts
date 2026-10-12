@@ -24,6 +24,7 @@ import {
   handleExecuteQuery,
   handleExplainQuery,
   handleListPsTables,
+
   handleDescribePsTable,
 } from "./handlers/sql";
 import {
@@ -39,6 +40,7 @@ import {
 } from "./handlers/dashboards";
 import { handleStartDashboardGeneration } from "./handlers/start-dashboard-generation";
 import { handleSearchKnowledge } from "./handlers/knowledge";
+import { handleFotosDeArticulo } from "./handlers/fotos";
 import type { AgenticModelAdapter, AgenticRunStepInput } from "./runner-types";
 import { CliRunnerError } from "@/lib/llm-client";
 import { sanitize } from "@/lib/llm-provider/sanitize";
@@ -244,6 +246,8 @@ async function dispatchTool(
       return handleListPsTables(rawArgs, ctx);
     case "describe_ps_table":
       return handleDescribePsTable(rawArgs, ctx);
+    case "fotos_de_articulo":
+      return handleFotosDeArticulo(rawArgs, ctx);
     case "list_dashboards":
       return handleListDashboards(rawArgs, ctx);
     case "get_dashboard_spec":

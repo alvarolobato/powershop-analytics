@@ -69,6 +69,9 @@ Es TCC (privacidad de macOS) sobre volúmenes de red. Los metadatos pasan y el c
 14. **En el chat la detección es por contenido, no por columna.** El chat pinta markdown: no hay spec ni nombres de columna. Así que se recogen del texto los candidatos con forma de identificador (alfanumérico de 4 a 20 con al menos un dígito, quitando antes fechas y bloques de código), se pregunta a la BD en un lote por mensaje cuáles son artículos **con foto**, y solo esos se decoran. La BD es quien decide; nunca se adivina. Un falso candidato no se reconoce y el texto se queda igual.
 15. **Un «modelo» enseña todos sus colores.** El chat suele mostrar el modelo (la Referencia sin los dos últimos caracteres), que agrupa un artículo por color. No es una ambigüedad a resolver sino el grupo real: el tooltip enseña el primero y avisa de cuántos hay, y el lightbox recorre las fotos de todos, cada una rotulada con su color. Para eso `PhotoLightbox` acepta un recorrido explícito (`fotos`) además del clásico `codigo` + `slots`.
 
+16. **Enlazar artículos es FORMATO, no regla de negocio.** La instrucción vive en el preámbulo del chat (`## Cómo se responde`), no en `## LLM:rules`. Estuvo ahí y no se cumplió: el registro de contexto del turno del 2026-10-10 20:03 demuestra que llegó al modelo —en un prompt de 168.644 caracteres, como una de 61 reglas— y aun así una conversación de 15 respuestas con 67 identificadores no emitió ni un enlace. Llegar no basta.
+17. **El asistente puede saber si un artículo tiene foto.** La herramienta `fotos_de_articulo` resuelve código, Referencia o modelo y devuelve cuántas fotos tiene cada color. Sin ella el modelo no podía distinguir «no hay foto» de «las fotos están rotas», que es una duda real: sólo el 20 % del catálogo tiene foto, y hay temporadas enteras a cero.
+
 **Alternatives rejected**:
 
 - **Leer del share en vivo desde la app.** Un hover podría tardar 5 s, y la app dependería de la VPN en cada petición.

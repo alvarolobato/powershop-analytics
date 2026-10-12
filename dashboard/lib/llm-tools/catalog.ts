@@ -116,6 +116,29 @@ const DATA_INSPECTION_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "fotos_de_articulo",
+      description:
+        "¿Tiene foto un artículo? Acepta su código, su Referencia o su modelo (la Referencia sin " +
+        "los dos últimos caracteres). Devuelve, por cada identificador, si existe el artículo y " +
+        "cuántas fotos tiene cada variante de color. Úsala cuando el usuario pregunte por la foto " +
+        "o la imagen de un artículo: solo el 20 % del catálogo tiene, así que sin consultarlo no " +
+        "puedes saber si falta la foto o falla algo.",
+      parameters: {
+        type: "object",
+        properties: {
+          identificadores: {
+            type: "array",
+            items: { type: "string" },
+            description: "Códigos, Referencias o modelos. Máximo 50.",
+          },
+        },
+        required: ["identificadores"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_dashboards",
       description: "List saved dashboards (id, name, short description, updated_at).",
       parameters: {
@@ -334,6 +357,7 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
 // ── Inspection tools (no side-effects, read-only) ─────────────────────────────
 const INSPECTION_TOOL_NAMES = new Set([
   "search_knowledge",
+  "fotos_de_articulo",
   "list_ps_tables",
   "describe_ps_table",
   "validate_query",
@@ -367,7 +391,7 @@ const SET_TITLE_TOOL: ChatCompletionTool = {
 };
 
 /**
- * Tools available in the free-chat flow: 11 inspection tools + start_dashboard_generation + set_title = 13 tools.
+ * Tools available in the free-chat flow: 12 inspection tools + start_dashboard_generation + set_title = 14 tools.
  * Does NOT include modification/analysis/review publish tools.
  */
 export const FREE_CHAT_TOOLS: ChatCompletionTool[] = [
