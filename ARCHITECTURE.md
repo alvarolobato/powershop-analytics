@@ -96,7 +96,7 @@ When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `generate`, `modify`, and
 
 | Export | Tools | Used by |
 |--------|-------|---------|
-| `FREE_CHAT_TOOLS` | 10 inspection tools + `start_dashboard_generation` (11 total) | Free conversations (`mode='chat'`) — planned (issue #616) |
+| `FREE_CHAT_TOOLS` | 12 inspection tools + `start_dashboard_generation` + `set_title` (14 total) | Free conversations (`mode='chat'`) — planned (issue #616) |
 | `FULL_DASHBOARD_TOOLS` | All registered tools including write tools | Future expansion |
 
 The runner (`dashboard/lib/llm-tools/runner.ts`) accepts a `tools?: ChatCompletionTool[]` param. When omitted, it defaults to `DASHBOARD_AGENTIC_TOOLS` (the full catalog). Free-chat will pass `FREE_CHAT_TOOLS` explicitly to restrict write tool access (planned — issue #616). There are no separate `GENERATE_TOOLS`/`MODIFY_TOOLS`/`ANALYZE_TOOLS` named exports; those flows use the runner default.

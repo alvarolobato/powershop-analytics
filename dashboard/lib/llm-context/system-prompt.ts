@@ -447,6 +447,26 @@ function formatReviewInstructions(instructions: Instruction[]): string {
 // No era un problema de esa pregunta: el preámbulo decía cuándo llamar a
 // `start_dashboard_generation` y cuándo poner título, pero nunca cómo se
 // contesta a una pregunta analítica normal, que es la inmensa mayoría.
+// Enlazar los articulos es FORMATO de respuesta, no una regla de negocio, y
+// por eso vive aqui y no en `## LLM:rules`.
+//
+// Estuvo en las reglas de negocio y no funciono: el 2026-10-10, quince horas
+// despues de desplegarla, una conversacion de 15 respuestas con 67
+// identificadores de articulo no emitio ni un solo enlace. El registro de
+// contexto de ese turno (D-040) demuestra que la regla SI llego al modelo —
+// estaba en un prompt de 168.644 caracteres, como una de 61 reglas de negocio.
+// Llegar no basta: una instruccion de formato enterrada entre reglas de
+// dominio se diluye. Es el mismo fallo que ya documenta el comentario de
+// FREE_CHAT_PREAMBLE sobre el JSON pegado en el texto.
+const ENLAZA_ARTICULOS =
+  "- Cuando nombres un ARTÍCULO concreto —en una tabla o en mitad de una frase— escríbelo como enlace " +
+  "markdown con el esquema `articulo:` y su identificador: `[V25680184](articulo:V25680184)`, " +
+  "`[Sujetador foam](articulo:RI496999)`, `[PARKA REVERSIBLE](articulo:144750)`. Vale el código, la " +
+  "Referencia o el modelo (la Referencia sin los dos últimos caracteres). Es lo que hace que se vea su " +
+  "foto al pasar el ratón, y funciona aunque el texto visible sea la descripción, que por sí sola no " +
+  "identifica nada. Si una columna lista artículos, enlaza cada celda. Usa SOLO identificadores que te " +
+  "haya devuelto una consulta: uno inventado no enseña ninguna foto.\n\n";
+
 const FREE_CHAT_PREAMBLE =
   "Eres un asistente analítico de PowerShop Analytics. " +
   "Tienes acceso a herramientas para inspeccionar el modelo de datos, ejecutar consultas de solo lectura y explorar dashboards guardados. " +
@@ -456,7 +476,8 @@ const FREE_CHAT_PREAMBLE =
   "- Da las CIFRAS concretas que has obtenido, en prosa y con una tabla markdown pequeña si hay varias filas. " +
   "El usuario pregunta cuánto vendió o cuánto margen deja algo; quiere el número.\n" +
   "- Di en una línea de dónde sale (tablas y criterio: periodo, neto de devoluciones, exclusiones aplicadas).\n" +
-  "- Si un dato no está en el espejo, dilo y explica qué falta. No lo inventes ni lo sustituyas por un dato parecido sin avisar.\n\n" +
+  "- Si un dato no está en el espejo, dilo y explica qué falta. No lo inventes ni lo sustituyas por un dato parecido sin avisar.\n" +
+  ENLAZA_ARTICULOS +
   "NUNCA pegues en tu respuesta una especificación de dashboard (un JSON con `widgets`, `kpi_row`, `bar_chart`...). " +
   "Eso no es una respuesta: es la receta para construir un panel, y el usuario no puede leerla. " +
   "Si el usuario pide un panel o un cuadro de mandos, llama a la herramienta `start_dashboard_generation` " +
@@ -478,7 +499,10 @@ const SUMMARY_PREAMBLE =
   "de solo lectura contra las tablas ps_*. Extrae siempre las cifras directamente de las " +
   "tablas — nunca estimes ni supongas un valor; valida cada consulta antes de ejecutarla. " +
   "En tu primera respuesta de cada conversación nueva, llama a la herramienta `set_title` " +
-  "con un título breve (5-7 palabras, en español) que resuma el tema.\n\n";
+  "con un título breve (5-7 palabras, en español) que resuma el tema.\n\n" +
+  // El resumen semanal se pinta con el mismo markdown que el chat, asi que
+  // los enlaces de articulo funcionan igual.
+  ENLAZA_ARTICULOS;
 
 // ── Public prompt builders ────────────────────────────────────────────────────
 

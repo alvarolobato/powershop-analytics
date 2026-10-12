@@ -7,11 +7,11 @@ import {
 
 describe("llm-tools catalog", () => {
   describe("FREE_CHAT_TOOLS", () => {
-    it("contains exactly 13 tools (11 inspection + start_dashboard_generation + set_title)", () => {
-      expect(FREE_CHAT_TOOLS).toHaveLength(13);
+    it("contains exactly 14 tools (12 inspection + start_dashboard_generation + set_title)", () => {
+      expect(FREE_CHAT_TOOLS).toHaveLength(14);
     });
 
-    it("includes all 11 inspection tools", () => {
+    it("includes all 12 inspection tools", () => {
       const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
       expect(names).toContain("search_knowledge");
       expect(names).toContain("list_ps_tables");
@@ -24,6 +24,7 @@ describe("llm-tools catalog", () => {
       expect(names).toContain("get_dashboard_queries");
       expect(names).toContain("get_dashboard_widget_raw_values");
       expect(names).toContain("get_dashboard_all_widget_status");
+      expect(names).toContain("fotos_de_articulo");
     });
 
     it("includes start_dashboard_generation", () => {
