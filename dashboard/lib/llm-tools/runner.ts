@@ -24,7 +24,6 @@ import {
   handleExecuteQuery,
   handleExplainQuery,
   handleListPsTables,
-
   handleDescribePsTable,
 } from "./handlers/sql";
 import {

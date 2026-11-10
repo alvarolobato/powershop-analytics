@@ -55,10 +55,7 @@ export async function handleFotosDeArticulo(
     });
     return toolOk({ resultados });
   } catch (err) {
-    console.warn(
-      "[fotos_de_articulo] no se pudo resolver:",
-      err instanceof Error ? err.message : err,
-    );
+    console.error(`[${ctx.requestId}] fotos_de_articulo failed:`, err);
     return toolError("DB", "No se pudo consultar las fotos.", ctx);
   }
 }

@@ -40,9 +40,6 @@ export const FORMA_TOKEN = /^(?=[A-Za-z0-9._-]*\d)[A-Za-z0-9._-]{1,40}$/;
 /** Variantes por modelo. Uno con 40 colores no cabe en un tooltip. */
 export const MAX_VARIANTES = 12;
 
-/** Tope por petición, compartido con el cliente. */
-export const MAX_LOTE_TOKENS = 200;
-
 /**
  * Artículos que casan con cada identificador, SIN mirar todavía si tienen foto.
  *
@@ -103,7 +100,8 @@ export async function resolverTokens(
   tokens: string[],
   yaMirados: Record<string, Slot[]> = {},
 ): Promise<Map<string, ResolucionToken>> {
-  const limpios = [...new Set(tokens.filter((t) => FORMA_TOKEN.test(t)))].slice(0, MAX_LOTE_TOKENS);
+  // Sin tope propio: lo ponen los llamadores (la ruta, 200; la herramienta, 50).
+  const limpios = [...new Set(tokens.filter((t) => FORMA_TOKEN.test(t)))];
   const candidatos = await articulosDeTokens(limpios);
   const sinMirar = [
     ...new Set(

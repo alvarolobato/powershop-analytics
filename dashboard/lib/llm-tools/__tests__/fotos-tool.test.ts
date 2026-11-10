@@ -11,7 +11,7 @@ const resolverTokens = vi.fn();
 vi.mock("@/lib/fotos-resolver", () => ({ resolverTokens: (...a: unknown[]) => resolverTokens(...a) }));
 
 import { handleFotosDeArticulo } from "../handlers/fotos";
-import { FREE_CHAT_TOOLS } from "../catalog";
+import { DASHBOARD_AGENTIC_TOOLS, FREE_CHAT_TOOLS } from "../catalog";
 import type { LlmAgenticContext } from "../types";
 
 const ctx = { requestId: "req_test" } as LlmAgenticContext;
@@ -29,8 +29,13 @@ beforeEach(() => {
 
 describe("fotos_de_articulo", () => {
   it("el chat la tiene disponible", () => {
-    const nombres = FREE_CHAT_TOOLS.map((t) => t.function.name);
+    const nombres = FREE_CHAT_TOOLS.map((t) => (t.type === "function" ? t.function.name : ""));
     expect(nombres).toContain("fotos_de_articulo");
+  });
+
+  it("solo el chat: generate/modify/analyze no la reciben", () => {
+    const nombres = DASHBOARD_AGENTIC_TOOLS.map((t) => (t.type === "function" ? t.function.name : ""));
+    expect(nombres).not.toContain("fotos_de_articulo");
   });
 
   it("dice cuántas fotos tiene cada color de un modelo", async () => {

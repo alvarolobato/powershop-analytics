@@ -464,8 +464,9 @@ const ENLAZA_ARTICULOS =
   "`[Sujetador foam](articulo:RI496999)`, `[PARKA REVERSIBLE](articulo:144750)`. Vale el código, la " +
   "Referencia o el modelo (la Referencia sin los dos últimos caracteres). Es lo que hace que se vea su " +
   "foto al pasar el ratón, y funciona aunque el texto visible sea la descripción, que por sí sola no " +
-  "identifica nada. Si una columna lista artículos, enlaza cada celda. Usa SOLO identificadores que te " +
-  "haya devuelto una consulta: uno inventado no enseña ninguna foto.\n\n";
+  "identifica nada. Si una columna lista artículos, enlaza cada celda. Para poder enlazarlos, incluye " +
+  "`codigo` o `ccrefejofacm` en el SELECT aunque no los muestres. Usa SOLO identificadores que te haya " +
+  "devuelto una consulta: uno inventado o equivocado enseña otra foto o ninguna.\n\n";
 
 const FREE_CHAT_PREAMBLE =
   "Eres un asistente analítico de PowerShop Analytics. " +

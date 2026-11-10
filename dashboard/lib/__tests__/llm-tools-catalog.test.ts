@@ -7,11 +7,11 @@ import {
 
 describe("llm-tools catalog", () => {
   describe("FREE_CHAT_TOOLS", () => {
-    it("contains exactly 14 tools (12 inspection + start_dashboard_generation + set_title)", () => {
+    it("contains exactly 14 tools (11 inspection + start_dashboard_generation + fotos_de_articulo + set_title)", () => {
       expect(FREE_CHAT_TOOLS).toHaveLength(14);
     });
 
-    it("includes all 12 inspection tools", () => {
+    it("includes the 11 inspection tools and fotos_de_articulo", () => {
       const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
       expect(names).toContain("search_knowledge");
       expect(names).toContain("list_ps_tables");
