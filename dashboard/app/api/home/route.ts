@@ -160,7 +160,7 @@ export async function GET(req: NextRequest) {
   try {
     // ─────────────────────────────────────────────────────────────────────
     // Resolve as-of date: ?date=YYYY-MM-DD wins (if valid + in range),
-    // otherwise the most recent day with retail sales in the mirror.
+    // otherwise today in Madrid.
     // ─────────────────────────────────────────────────────────────────────
     const requested = req.nextUrl.searchParams.get("date");
     const requestedClean =
@@ -244,6 +244,10 @@ export async function GET(req: NextRequest) {
         ? Math.min(currentHourMadrid, todayMirrorHour)
         : currentHourMadrid;
     const cutoffActive = isAsOfToday && todayRowCount > 0;
+    // Today with no rows yet (before the first sale is synced, or a frozen
+    // ETL). The 0 € is the signal; comparing it with a full day would paint
+    // -100 % and every store red every morning, so the day deltas go neutral.
+    const hoyVacio = isAsOfToday && todayRowCount === 0;
     // Placeholder when cutoff is inactive — never read because the SQL
     // gate (`NOT $3::bool OR …`) short-circuits before evaluating it.
     const cutoffHour = cutoffActive ? effectiveCutoffHour : 0;
@@ -1091,8 +1095,8 @@ export async function GET(req: NextRequest) {
       todayValue,
       forecastEOD: todayValue,
       todayPace: 0,
-      vsYesterday: safeRatio(todayValue, yesterdayForDelta),
-      vsLY: safeRatio(todayValue, lastYearForDelta),
+      vsYesterday: hoyVacio ? 0 : safeRatio(todayValue, yesterdayForDelta),
+      vsLY: hoyVacio ? 0 : safeRatio(todayValue, lastYearForDelta),
       yesterday: yesterdayFull,
       lastYear: lastYearFull,
       // When the cutoff is active, expose the hour and the cutoff totals
@@ -1171,11 +1175,11 @@ export async function GET(req: NextRequest) {
         id: "hoy",
         label: "Hoy",
         value: periodHoyCurr,
-        deltaPrev: safeRatio(periodHoyCurr, periodHoyPrev),
+        deltaPrev: hoyVacio ? 0 : safeRatio(periodHoyCurr, periodHoyPrev),
         prevLabel: cutoffActive
           ? `vs ayer (hasta las ${String(cutoffHour).padStart(2, "0")}:00)`
           : "vs ayer",
-        deltaYoY: periodHoyLY > 0 ? safeRatio(periodHoyCurr, periodHoyLY) : null,
+        deltaYoY: !hoyVacio && periodHoyLY > 0 ? safeRatio(periodHoyCurr, periodHoyLY) : null,
         yoyLabel: cutoffActive
           ? `vs ${dateLabelEs(lastYearSameDay)} (hasta las ${String(cutoffHour).padStart(2, "0")}:00)`
           : `vs ${dateLabelEs(lastYearSameDay)}`,
@@ -1381,9 +1385,10 @@ export async function GET(req: NextRequest) {
         r[8] !== null && r[8] !== undefined ? num(r[8]) : null;
       const tickets = r[9] !== null && r[9] !== undefined ? num(r[9]) : 0;
       const ticketMedio = tickets > 0 ? sales / tickets : 0;
-      const delta = avg7 > 0 ? sales / avg7 - 1 : 0;
+      const delta = !hoyVacio && avg7 > 0 ? sales / avg7 - 1 : 0;
       const streakWeeks = storeStreakMap[code] ?? 0;
-      const deltaYoY = salesLY !== null && salesLY > 0 ? sales / salesLY - 1 : null;
+      const deltaYoY =
+        !hoyVacio && salesLY !== null && salesLY > 0 ? sales / salesLY - 1 : null;
       return {
         code,
         name: storeName(identificador, poblacion, code),
