@@ -34,6 +34,23 @@ Al salir del bloque vigilado se lanza `ConexionCerradaPor4D`, que es un
 `ConnectionError`, asi que `_s()` en `main.py` reconecta y reintenta la tabla
 como con cualquier otro socket muerto.
 
+El otro cuelgue: silencio sin cierre
+------------------------------------
+El 2026-11-08 a las 05:22 la pasada full se quedo a 75.000 filas de terminar
+`ps_gc_lin_albarane` y el ETL estuvo 2 dias y 15 horas parado. Esta vez sin
+CPU: el socket seguia ESTABLISHED, sin nada en las colas, y el `recv()` del
+driver dormido esperando bytes que no iban a llegar. 4D no mando el cierre, asi
+que la mirada de arriba no veia nada, y la transaccion abierta dejaba ademas
+`ps_gc_lin_albarane` bloqueada para el dashboard.
+
+Por eso el vigia corta tambien cuando el socket lleva `_SILENCIO_MAX_S` sin
+recibir un solo byte, medido por el kernel (`TCP_INFO.tcpi_last_data_recv`).
+No es un tiempo por consulta: una lectura lenta que va recibiendo datos no se
+toca nunca (el 2026-10-15 una tienda de `sync_stock` tardo 67 minutos en un
+4D degradado). Solo se corta lo que lleva media hora mudo, que en las pasadas
+normales no ocurre: la lectura mas pesada envia filas sin pausa. Fuera de
+Linux no hay `TCP_INFO` y esta segunda mirada no actua.
+
 Solo se actua sobre descriptores registrados DENTRO de un bloque vigilado, y el
 registro y la accion comparten cerrojo: fuera del bloque el hilo principal
 puede cerrar la conexion y el numero puede pasar a otro socket, y el vigia no
@@ -45,6 +62,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import struct
 import threading
 import time
 from collections.abc import Iterator
@@ -57,9 +75,20 @@ logger = logging.getLogger(__name__)
 # es un `recv` no bloqueante por conexion activa, despreciable.
 _INTERVALO_S = 2.0
 
+# Cuanto silencio total (ni un byte de 4D) se tolera dentro de un bloque. Ver
+# "El otro cuelgue" arriba.
+_SILENCIO_MAX_S = 30 * 60
+
+# `tcpi_last_data_recv` (ms desde el ultimo dato recibido) es el u32 numero 12
+# de `struct tcp_info`, tras 8 bytes de campos u8: offset 52, estable desde
+# Linux 2.6.
+_TCP_INFO = getattr(socket, "TCP_INFO", None)
+_TCPI_LAST_DATA_RECV = struct.Struct("=I")
+_TCPI_LAST_DATA_RECV_OFFSET = 52
+
 
 class ConexionCerradaPor4D(ConnectionError):
-    """4D cerro la conexion a mitad de una llamada al driver.
+    """4D cerro la conexion, o dejo de enviar, a mitad de una llamada al driver.
 
     Es `ConnectionError` a proposito: `_es_error_de_conexion()` la reconoce y
     la tabla se reintenta sobre una conexion nueva.
@@ -103,16 +132,67 @@ def _cerrado_por_el_otro_lado(fd: int) -> bool:
         s.close()  # cierra el duplicado, no el original
 
 
+def _silencio_s(fd: int) -> float | None:
+    """Segundos desde el ultimo byte recibido por el socket, o None si no se sabe."""
+    if _TCP_INFO is None:
+        return None
+    try:
+        s = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
+    except OSError:
+        return None
+    try:
+        info = s.getsockopt(socket.IPPROTO_TCP, _TCP_INFO, 104)
+    except OSError:
+        return None
+    finally:
+        s.close()
+    if len(info) < _TCPI_LAST_DATA_RECV_OFFSET + 4:
+        return None
+    (ms,) = _TCPI_LAST_DATA_RECV.unpack_from(info, _TCPI_LAST_DATA_RECV_OFFSET)
+    return ms / 1000
+
+
+def _motivo_de_corte(v: _Vigilada) -> str | None:
+    if _cerrado_por_el_otro_lado(v.fd):
+        return "4D cerro la conexion a mitad de una lectura"
+    silencio = _silencio_s(v.fd)
+    if silencio is None:
+        return None
+    # El ultimo dato puede ser anterior al bloque (la conexion estuvo ociosa
+    # entre consultas): solo cuenta el silencio desde que empezo la llamada.
+    silencio = min(silencio, time.monotonic() - v.desde)
+    if silencio >= _SILENCIO_MAX_S:
+        return f"4D lleva {silencio / 60:.0f} min sin enviar un byte"
+    return None
+
+
 def _romper(v: _Vigilada) -> None:
     """Sustituye el socket por /dev/null para que el `recv` del driver falle."""
     # Se marca ANTES del corte: en cuanto `dup2` vuelve, el hilo lector puede
     # recibir el error y mirar `rota` antes de que este hilo siga.
     v.rota = True
+    # Un `recv` que ya esta DORMIDO dentro del socket (el caso del silencio)
+    # no se entera del `dup2`: sigue esperando en el socket viejo. Se guarda
+    # una copia del socket, se hace el cambio y luego `shutdown` sobre la
+    # copia lo despierta con fin de fichero; su siguiente `recv` ya cae en
+    # /dev/null y falla. En el caso del cierre de 4D no hace falta, y no
+    # estorba.
+    try:
+        copia = socket.fromfd(v.fd, socket.AF_INET, socket.SOCK_STREAM)
+    except OSError:
+        copia = None
     nulo = os.open(os.devnull, os.O_RDWR)
     try:
         os.dup2(nulo, v.fd)
     finally:
         os.close(nulo)
+    if copia is not None:
+        try:
+            copia.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        finally:
+            copia.close()
 
 
 def _vaciar_logs() -> None:
@@ -142,7 +222,8 @@ def _olvidar_socket(conn) -> None:
 def _revisar() -> None:
     with _cerrojo:
         for v in _activas.values():
-            if v.rota or not _cerrado_por_el_otro_lado(v.fd):
+            motivo = None if v.rota else _motivo_de_corte(v)
+            if motivo is None:
                 continue
             # El log va ANTES del corte y se vacia: tras el `dup2` el driver
             # puede reventar (segfault) en microsegundos -- p.ej. si el cierre
@@ -150,9 +231,9 @@ def _revisar() -> None:
             # longitud negativa da NULL y lo escribe --, y sin esto la caida
             # volveria a no dejar ni una linea.
             logger.error(
-                "vigia: 4D cerro la conexion a mitad de una lectura (%.0f s "
-                "dentro); se corta el socket para que el driver no gire para "
-                "siempre. SQL: %s",
+                "vigia: %s (%.0f s dentro); se corta el socket para que el "
+                "driver no se quede ahi para siempre. SQL: %s",
+                motivo,
                 time.monotonic() - v.desde,
                 v.sql[:200],
             )

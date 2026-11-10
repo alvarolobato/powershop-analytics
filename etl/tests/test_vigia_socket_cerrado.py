@@ -112,3 +112,76 @@ def test_tras_el_corte_la_conexion_olvida_su_descriptor():
             _como_frecv(cliente, 4)
     assert conn.connptr.socket == -1
     cliente.close()
+
+
+# ── Silencio sin cierre (2026-11-08): el `recv` duerme, no gira ─────────────
+
+_solo_linux = pytest.mark.skipif(
+    vigia._TCP_INFO is None, reason="TCP_INFO solo existe en Linux"
+)
+
+
+def _leer_en_hilo(sock: socket.socket, n: int):
+    resultado: list[object] = []
+
+    def leer():
+        try:
+            with vigilar(_conn_con_socket(sock), "SELECT X FROM GCLinAlbaranes"):
+                resultado.append(_como_frecv(sock, n))
+        except BaseException as exc:  # noqa: BLE001
+            resultado.append(exc)
+
+    hilo = threading.Thread(target=leer, daemon=True)
+    hilo.start()
+    return hilo, resultado
+
+
+def test_un_recv_dormido_se_despierta_al_cortar(monkeypatch):
+    """El corte por silencio despierta un `recv` bloqueado, no solo el que gira."""
+    monkeypatch.setattr(vigia, "_SILENCIO_MAX_S", 0.2)
+    monkeypatch.setattr(vigia, "_silencio_s", lambda fd: 3600.0)
+    cliente, remoto = _par_tcp()  # 4D vivo y mudo: no envia ni cierra
+
+    hilo, resultado = _leer_en_hilo(cliente, 10)
+    hilo.join(timeout=5)
+
+    assert not hilo.is_alive(), "el recv sigue dormido: el corte no lo desperto"
+    assert len(resultado) == 1
+    assert isinstance(resultado[0], ConexionCerradaPor4D)
+    cliente.close()
+    remoto.close()
+
+
+@_solo_linux
+def test_4d_mudo_se_corta_por_silencio(monkeypatch):
+    monkeypatch.setattr(vigia, "_SILENCIO_MAX_S", 0.3)
+    cliente, remoto = _par_tcp()
+    remoto.sendall(b"abc")  # empieza a responder y se calla
+
+    hilo, resultado = _leer_en_hilo(cliente, 10)
+    hilo.join(timeout=5)
+
+    assert not hilo.is_alive()
+    assert isinstance(resultado[0], ConexionCerradaPor4D)
+    cliente.close()
+    remoto.close()
+
+
+@_solo_linux
+def test_lectura_lenta_que_recibe_datos_no_se_corta(monkeypatch):
+    """Lo que cuenta es el silencio, no lo que dura la llamada."""
+    monkeypatch.setattr(vigia, "_SILENCIO_MAX_S", 0.3)
+    cliente, remoto = _par_tcp()
+
+    def gotear():
+        for b in b"0123456789":  # 1 s en total, nunca 0,3 s callado
+            threading.Event().wait(0.1)
+            remoto.sendall(bytes([b]))
+
+    threading.Thread(target=gotear, daemon=True).start()
+    hilo, resultado = _leer_en_hilo(cliente, 10)
+    hilo.join(timeout=5)
+
+    assert resultado == [b"0123456789"]
+    cliente.close()
+    remoto.close()
