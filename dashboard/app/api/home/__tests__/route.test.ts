@@ -438,6 +438,14 @@ describe("GET /api/home", () => {
     expect(typeof health.rows).toBe("number");
   });
 
+  it("defaults asOfDate to today_madrid even when today has no mirrored rows", async () => {
+    // Default mock: max_synced=2026-04-30, today=2026-05-03, 0 rows today.
+    // Falling back to the last day with sales hid a frozen ETL for 3 days.
+    const res = await GET(makeReq());
+    const body = await res.json();
+    expect(body.asOfDate).toBe("2026-05-03");
+  });
+
   it("respects ?date= when within the available range", async () => {
     const res = await GET(makeReq("2026-04-29"));
     expect(res.status).toBe(200);

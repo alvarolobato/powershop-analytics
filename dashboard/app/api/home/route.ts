@@ -197,15 +197,11 @@ export async function GET(req: NextRequest) {
         : null;
     const todayRowCount = Number(pivotRow.rows[0][5] ?? 0);
 
-    // Default as-of (when no ?date= supplied):
-    //   - if today (Madrid) has any mirrored rows → today_madrid, so the
-    //     same-hour-cutoff path fires and the user lands on a live view;
-    //   - otherwise → max_synced (yesterday under nightly ETL), so KPIs
-    //     are computed against a closed day instead of an empty today.
-    // The navigator cap (`maxAvailableDate`) still goes up to today_madrid
-    // so the user can scroll forward and back regardless of the default.
-    let asOfDate =
-      todayMadrid && todayRowCount > 0 ? todayMadrid : (maxSyncedStr || todayMadrid);
+    // Default as-of (when no ?date= supplied) is always today_madrid, even
+    // when today has no mirrored rows. Falling back to the last day with
+    // sales hid a frozen ETL: from 2026-11-08 to 11-10 the home kept showing
+    // Saturday as if it were current. An empty today is the signal.
+    let asOfDate = todayMadrid || maxSyncedStr;
     if (requestedClean) {
       if (minAvailStr && requestedClean < minAvailStr) asOfDate = minAvailStr;
       else if (todayMadrid && requestedClean > todayMadrid) asOfDate = todayMadrid;
