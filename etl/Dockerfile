@@ -9,9 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 # p4d 1.8 uses CFFI-generated C code that triggers an -Wincompatible-pointer-types
-# error on GCC 14+ (treated as error by default).  Setting CFLAGS to downgrade it
-# to a warning is the minimal non-invasive fix until p4d ships a corrected release.
-RUN CFLAGS="-Wno-incompatible-pointer-types" pip install --no-cache-dir -r requirements.txt && \
+# error on GCC 14+ (treated as error by default).  Installed separately so the
+# CFLAGS workaround is scoped only to this C extension; other packages install
+# normally.  p4d is kept out of requirements.txt so the CI test job (which
+# cannot set build env vars) can install dependencies without compilation.
+RUN CFLAGS="-Wno-incompatible-pointer-types" pip install --no-cache-dir p4d && \
+    pip install --no-cache-dir -r requirements.txt && \
     opentelemetry-bootstrap -a install
 COPY . etl/
 
