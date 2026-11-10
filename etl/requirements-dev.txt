@@ -1,4 +1,18 @@
--r requirements.txt
+# Production deps without p4d: p4d is lazy-imported (etl/db/fourd.py) and
+# only needed for live 4D connections.  CI test job runs with P4D_HOST=""
+# so those tests skip gracefully.  p4d also requires CFLAGS on GCC 14+
+# (see Dockerfile) which the plain pip install in the test job doesn't set.
+psycopg2-binary
+python-dotenv
+PyYAML>=6.0
+schedule
+opentelemetry-distro>=0.49b0
+opentelemetry-exporter-otlp-proto-grpc>=1.28.0
+opentelemetry-instrumentation-psycopg2>=0.49b0
+opentelemetry-instrumentation-requests>=0.49b0
+opentelemetry-api>=1.28.0
+opentelemetry-sdk>=1.28.0
+# Test / lint tooling
 ruff
 pytest
 pytest-cov
