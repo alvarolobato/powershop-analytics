@@ -7,7 +7,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,7 +20,7 @@ jobs:
         run: python scripts/verify_etl_schema.py
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,7 +39,7 @@ jobs:
           path: coverage.xml
 
   dashboard-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: dashboard
@@ -63,7 +63,7 @@ jobs:
           path: dashboard/coverage/
 
   dashboard-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:15
@@ -148,7 +148,7 @@ jobs:
           path: dashboard/playwright-report/
 
   docker-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # A nivel de job para poder usarlo en el `if` del login: los secrets no
       # se pueden evaluar en un `if` de paso.
