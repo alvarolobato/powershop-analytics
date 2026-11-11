@@ -338,24 +338,6 @@ cmd_health() {
         all_ok=false
     fi
 
-    # WrenAI UI — curl from prod localhost
-    printf "  %-20s" "WrenAI UI:"
-    if remote "curl -fsSL --max-time 5 http://localhost:3000 >/dev/null 2>&1"; then
-        echo -e "${GREEN}healthy${NC}"
-    else
-        echo -e "${YELLOW}not responding (may still be starting)${NC}"
-        all_ok=false
-    fi
-
-    # WrenAI AI Service
-    printf "  %-20s" "WrenAI AI Service:"
-    if remote "curl -fsSL --max-time 5 http://localhost:5555 >/dev/null 2>&1"; then
-        echo -e "${GREEN}healthy${NC}"
-    else
-        echo -e "${YELLOW}not responding${NC}"
-        all_ok=false
-    fi
-
     # Dashboard
     printf "  %-20s" "Dashboard:"
     if remote "curl -fsSL --max-time 5 http://localhost:4000/api/health >/dev/null 2>&1"; then
