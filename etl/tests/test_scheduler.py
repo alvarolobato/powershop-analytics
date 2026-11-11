@@ -620,24 +620,15 @@ class _StopLoop(BaseException):
     """
 
 
-def test_startup_sync_is_delta_not_full():
-    """A container restart must not kick off a 3-hour full refresh.
-
-    Arrancar con un full costaba ~3 h de reescritura en cada `ps prod update`
-    y en cada muerte por memoria — y como morir dispara otro arranque, que
-    dispara otro full, se realimentaba. Entre el 28-08 y el 02-09 hubo 18
-    despliegues contra 3 en todo junio, y la maquina se paso media jornada
-    haciendo fulls de arranque que nadie pidio, compitiendo por el mismo
-    Postgres que sirve el dashboard.
-
-    Los watermarks viven en Postgres y sobreviven al reinicio, asi que el
-    delta pone al dia desde donde se quedo. El full nocturno no se toca.
-    """
+def _kinds_at_startup(edad_ultimo_full):
+    """Arranca el bucle del planificador y devuelve los tipos de pasada que
+    lanza antes de la primera vuelta, con el ultimo full hace `edad` horas."""
     from contextlib import ExitStack
     from datetime import datetime, timezone
     from unittest.mock import MagicMock, patch
 
     import pytest
+    import schedule
 
     import etl.main as main
 
@@ -657,11 +648,14 @@ def test_startup_sync_is_delta_not_full():
         stack.enter_context(patch.object(main, "_is_run_active", return_value=False))
         stack.enter_context(
             patch.object(
+                main, "_horas_desde_ultimo_full", return_value=edad_ultimo_full
+            )
+        )
+        stack.enter_context(
+            patch.object(
                 main, "_refresh_4d_connection", return_value=(MagicMock(), None)
             )
         )
-        import schedule
-
         stack.enter_context(
             patch.object(schedule, "run_pending", side_effect=_StopLoop)
         )
@@ -670,11 +664,50 @@ def test_startup_sync_is_delta_not_full():
             main._run_scheduler_loop(
                 MagicMock(), MagicMock(), MagicMock(), cron_hour=other_hour
             )
+    return kinds
 
-    assert kinds == ["delta"], (
-        f"El sync de arranque debe ser delta, no {kinds!r}. Un full al arrancar "
-        f"cuesta ~3 h y se realimenta con los reinicios."
+
+def test_startup_sync_is_delta_not_full():
+    """A container restart must not kick off a 3-hour full refresh.
+
+    Arrancar con un full costaba ~3 h de reescritura en cada `ps prod update`
+    y en cada muerte por memoria — y como morir dispara otro arranque, que
+    dispara otro full, se realimentaba. Entre el 28-08 y el 02-09 hubo 18
+    despliegues contra 3 en todo junio, y la maquina se paso media jornada
+    haciendo fulls de arranque que nadie pidio, compitiendo por el mismo
+    Postgres que sirve el dashboard.
+
+    Los watermarks viven en Postgres y sobreviven al reinicio, asi que el
+    delta pone al dia desde donde se quedo. El full nocturno no se toca.
+    """
+    # El full de anoche se intento hace 10 h: arranque normal.
+    assert _kinds_at_startup(10.0) == ["delta"], (
+        "El sync de arranque debe ser delta. Un full al arrancar cuesta ~3 h "
+        "y se realimenta con los reinicios."
     )
+
+
+def test_startup_sync_is_delta_on_fresh_install():
+    """Sin ningun full registrado (instalacion nueva) el arranque es delta:
+    sin watermarks, el delta ya es una carga completa."""
+    assert _kinds_at_startup(None) == ["delta"]
+
+
+def test_startup_recovers_a_missed_nightly_full():
+    """Si el ultimo full se intento hace mas de 30 h, el arranque es un full.
+
+    Las tablas full-only (compras, albaranes, pedidos mayoristas,
+    proveedores...) no entran en el delta. En noviembre de 2026 un full
+    congelado y un apagon las dejaron cuatro dias atras, y ningun arranque
+    lo arreglo porque todos eran delta.
+    """
+    assert _kinds_at_startup(80.0) == ["full"]
+
+
+def test_startup_full_is_not_repeated_after_a_crashed_full():
+    """Un full que muere (por memoria) reinicia el contenedor con un intento
+    de hace minutos: el arranque siguiente debe ser delta, no otro full."""
+    assert _kinds_at_startup(0.2) == ["delta"]
 
 
 # ---------------------------------------------------------------------------

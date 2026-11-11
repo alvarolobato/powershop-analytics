@@ -637,6 +637,38 @@ SYNC_NAMES: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 
 
+# Un full nocturno se intenta cada 24 h; 30 deja margen para un full que
+# arranca tarde o tarda en registrarse, sin confundir "anoche fue normal" con
+# "anoche no hubo full".
+_FULL_PERDIDO_HORAS = 30
+
+
+def _horas_desde_ultimo_full(conn_pg) -> float | None:
+    """Horas desde que EMPEZO el ultimo full, sea cual sea su resultado.
+
+    None si no hay ninguno (instalacion nueva: el delta sin watermarks ya es
+    una carga completa) o si la consulta falla (ante la duda, el tipo barato).
+    """
+    try:
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                "SELECT EXTRACT(EPOCH FROM NOW() - MAX(started_at)) / 3600.0"
+                " FROM etl_sync_runs WHERE kind = 'full'"
+            )
+            row = cur.fetchone()
+        conn_pg.rollback()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
+    except Exception as exc:
+        logger.warning("Could not read the last full run's age: %s", exc)
+        try:
+            conn_pg.rollback()
+        except Exception:
+            pass
+        return None
+
+
 def _is_run_active(conn_pg) -> bool:
     """Return True if a recent etl_sync_runs row with status='running' exists.
 
@@ -1461,8 +1493,29 @@ def _run_scheduler_loop(
     # util: los watermarks siguen en Postgres, sobreviven al reinicio, y el
     # delta pone al dia desde donde se quedo en segundos. El full nocturno
     # sigue en su hora.
-    logger.info("Running initial delta sync on startup ...")
-    _job(kind="delta")
+    #
+    # EXCEPCION: si el ultimo full se INTENTO hace mas de
+    # _FULL_PERDIDO_HORAS, arranca con un full. Las tablas full-only (compras,
+    # albaranes, pedidos mayoristas, proveedores, tiendas...) no entran en el
+    # delta, asi que una noche perdida las deja un dia mas viejas, y otra
+    # noche, otro dia. En noviembre de 2026 un full congelado (8-11) y un
+    # apagon del Mac la madrugada del 11 las dejaron cuatro dias atras sin que
+    # ningun arranque lo arreglara. Se cuenta el ultimo INTENTO, no el ultimo
+    # exito: un full que muere por memoria y reinicia el contenedor tiene un
+    # intento reciente, asi que el arranque siguiente es delta y no se
+    # realimenta.
+    edad = _horas_desde_ultimo_full(conn_pg)
+    if edad is not None and edad > _FULL_PERDIDO_HORAS:
+        logger.info(
+            "Last full attempt was %.1f h ago (> %d h) — running a catch-up "
+            "full on startup",
+            edad,
+            _FULL_PERDIDO_HORAS,
+        )
+        _job(kind="full")
+    else:
+        logger.info("Running initial delta sync on startup ...")
+        _job(kind="delta")
 
     while True:
         schedule.run_pending()
