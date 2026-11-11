@@ -438,6 +438,14 @@ describe("GET /api/home", () => {
     expect(typeof health.rows).toBe("number");
   });
 
+  it("defaults asOfDate to today_madrid even when today has no mirrored rows", async () => {
+    // Default mock: max_synced=2026-04-30, today=2026-05-03, 0 rows today.
+    // Falling back to the last day with sales hid a frozen ETL for 3 days.
+    const res = await GET(makeReq());
+    const body = await res.json();
+    expect(body.asOfDate).toBe("2026-05-03");
+  });
+
   it("respects ?date= when within the available range", async () => {
     const res = await GET(makeReq("2026-04-29"));
     expect(res.status).toBe(200);
@@ -662,7 +670,7 @@ describe("GET /api/home", () => {
       const NULL_ROW = Array(20).fill(null);
       return { rows: [NULL_ROW] };
     });
-    const res = await GET(makeReq());
+    const res = await GET(makeReq("2026-04-30")); // a closed day: real deltas
     expect(res.status).toBe(200);
     const { topStores } = await res.json();
     expect(Array.isArray(topStores)).toBe(true);
@@ -675,6 +683,43 @@ describe("GET /api/home", () => {
       expect(typeof topStores[0].deltaYoY).toBe("number");
       expect(topStores[0].deltaYoY).toBeCloseTo(1000 / 900 - 1, 5);
     }
+    queryMock.mockRestore();
+  });
+
+  it("an empty today (default view) shows neutral deltas, not -100 % and every store red", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    // today=2026-05-03 with 0 rows; store 611 sold 0 today against avg7=800, LY=900.
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales")) return { rows: [] };
+      if (sql.includes("FROM ps_tiendas") && sql.includes("sales_ly")) {
+        return { rows: [["611", "Madrid Serrano", null, "0", "800", "5000", "2026-04-30", "900"]] };
+      }
+      if (sql.includes("CROSS JOIN days") && sql.includes("t.codigo")) {
+        return { rows: [["611", "2026-04-30", "1000"]] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+    const body = await (await GET(makeReq())).json();
+    expect(body.asOfDate).toBe("2026-05-03");
+    const store = body.topStores.find((s: { code: string }) => s.code === "611");
+    expect(store.delta).toBe(0);
+    expect(store.deltaYoY).toBeNull();
+    expect(store.status).toBe("ok");
+    expect(body.hero.vsYesterday).toBe(0);
+    expect(body.periods[0].deltaYoY).toBeNull();
     queryMock.mockRestore();
   });
 
@@ -720,7 +765,7 @@ describe("GET /api/home", () => {
       const NULL_ROW = Array(20).fill(null);
       return { rows: [NULL_ROW] };
     });
-    const res = await GET(makeReq());
+    const res = await GET(makeReq("2026-04-30")); // a closed day: real deltas
     const { topStores } = await res.json();
     expect(topStores).toHaveLength(3);
     const byCode = Object.fromEntries(

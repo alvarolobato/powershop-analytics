@@ -73,6 +73,15 @@ test("home page hero-today renders real values (not skeleton)", async ({ page })
   expect(valueText).toMatch(/[0-9€]/);
 });
 
+test("home page opens on today, not on the last day with data", async ({ page }) => {
+  await page.goto("/");
+  const input = page.locator('[data-testid="date-navigator"] input[type="date"]');
+  await expect(input).toBeAttached({ timeout: 30_000 });
+  // Today in Madrid, the same clock the API uses.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
+  await expect(input).toHaveValue(today);
+});
+
 test("home page period-grid renders real content", async ({ page }) => {
   await page.goto("/");
 
