@@ -346,6 +346,34 @@ const INSPECTION_TOOL_NAMES = new Set([
   "get_dashboard_all_widget_status",
 ]);
 
+/**
+ * Free-chat-only: whether an article has photos (D-068). Only the chat renders
+ * `articulo:` links, so generate/modify/analyze/review do not get it.
+ */
+const FOTOS_DE_ARTICULO_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "fotos_de_articulo",
+    description:
+      "¿Tiene foto un artículo? Acepta su código, su Referencia o su modelo (la Referencia sin " +
+      "los dos últimos caracteres). Devuelve, por cada identificador, si existe el artículo y " +
+      "cuántas fotos tiene cada variante de color. Úsala cuando el usuario pregunte por la foto " +
+      "o la imagen de un artículo: solo el 20 % del catálogo tiene, así que sin consultarlo no " +
+      "puedes saber si falta la foto o falla algo.",
+    parameters: {
+      type: "object",
+      properties: {
+        identificadores: {
+          type: "array",
+          items: { type: "string" },
+          description: "Códigos, Referencias o modelos. Máximo 50.",
+        },
+      },
+      required: ["identificadores"],
+    },
+  },
+};
+
 /** Free-chat-only: lets the LLM set a concise conversation title on first response. */
 const SET_TITLE_TOOL: ChatCompletionTool = {
   type: "function",
@@ -367,7 +395,8 @@ const SET_TITLE_TOOL: ChatCompletionTool = {
 };
 
 /**
- * Tools available in the free-chat flow: 11 inspection tools + start_dashboard_generation + set_title = 13 tools.
+ * Tools available in the free-chat flow: 11 inspection tools + start_dashboard_generation +
+ * fotos_de_articulo + set_title = 14 tools.
  * Does NOT include modification/analysis/review publish tools.
  */
 export const FREE_CHAT_TOOLS: ChatCompletionTool[] = [
@@ -376,6 +405,7 @@ export const FREE_CHAT_TOOLS: ChatCompletionTool[] = [
       t.type === "function" &&
       (INSPECTION_TOOL_NAMES.has(t.function.name) || t.function.name === "start_dashboard_generation"),
   ),
+  FOTOS_DE_ARTICULO_TOOL,
   SET_TITLE_TOOL,
 ];
 

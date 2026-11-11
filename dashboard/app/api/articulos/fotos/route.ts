@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { esCodigoValido, MAX_LOTE, slotsDeFotos, type Slot } from "@/lib/fotos";
+import { resolverTokens, type ArticuloDeToken } from "@/lib/fotos-resolver";
 
 export const dynamic = "force-dynamic";
 
@@ -65,82 +66,6 @@ function listaDeTextos(valor: unknown): string[] | null {
   if (!Array.isArray(valor)) return null;
   if (!valor.every((v) => typeof v === "string")) return null;
   return valor as string[];
-}
-
-/**
- * Forma de un identificador de artículo, para el modo `tokens`.
- *
- * Aquí llegan dos cosas: los candidatos que el cliente saca del texto (ya
- * filtrados por él, que exige letra y dígito) y los identificadores de los
- * enlaces `articulo:` que pone el LLM. Estos últimos pueden ser un código
- * corto y numérico como "169", así que NO se puede exigir una longitud
- * mínima — tirarlos dejaría sin foto justo al canal que existe para no tener
- * ambigüedad.
- *
- * Lo que sí se exige es al menos un DÍGITO: todo identificador de artículo lo
- * tiene, y es lo que descarta las palabras de una descripción ("CAMISA",
- * "PANTALON") si alguien llama al endpoint a mano. No decide qué es un
- * artículo: solo acota la entrada. Quien decide es la base de datos.
- */
-const FORMA_TOKEN = /^(?=[A-Za-z0-9._-]*\d)[A-Za-z0-9._-]{1,40}$/;
-
-/** Variantes devueltas por un modelo. Un modelo con 40 colores no cabe en un tooltip. */
-const MAX_VARIANTES = 12;
-
-export interface ArticuloDeToken {
-  codigo: string;
-  referencia: string | null;
-  descripcion: string | null;
-  color: string | null;
-  slots: Slot[];
-}
-
-/**
- * Resuelve texto suelto contra la BD: código, Referencia, o MODELO.
- *
- * El modelo es la Referencia sin los dos últimos caracteres y es lo que el
- * chat suele enseñar ("I263002" por "I26300201"). Agrupa varios artículos, uno
- * por color, así que un token puede devolver varias fotos: son hermanos de
- * verdad, no una adivinanza.
- */
-async function articulosDeTokens(tokens: string[]): Promise<Map<string, ArticuloDeToken[]>> {
-  const out = new Map<string, ArticuloDeToken[]>();
-  if (tokens.length === 0) return out;
-  // TRES joins de IGUALDAD unidos, no un OR con length()/left().
-  //
-  // El OR obliga al planificador a un bucle anidado: una pasada entera por
-  // ps_articulos POR CADA token. Medido con 200 tokens: 2.886 ms (8,5 millones
-  // de comparaciones). Con joins de igualdad hace un hash join por rama — tres
-  // pasadas en total, da igual cuántos tokens vengan: 118 ms, 24 veces menos.
-  // Importa porque el endpoint va sin autenticación.
-  const res = await query(
-    `WITH toks AS (SELECT DISTINCT tok FROM unnest($1::text[]) AS t(tok))
-     SELECT tok, codigo, ccrefejofacm, descripcion, color FROM (
-         SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color, a.anulado
-           FROM ps_articulos a JOIN toks t ON t.tok = a.codigo
-       UNION ALL
-         SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color, a.anulado
-           FROM ps_articulos a JOIN toks t ON t.tok = a.ccrefejofacm
-       UNION ALL
-         -- El modelo: la Referencia sin los dos últimos caracteres.
-         SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color, a.anulado
-           FROM ps_articulos a
-           JOIN toks t ON t.tok = left(a.ccrefejofacm, length(a.ccrefejofacm) - 2)
-     ) u
-      WHERE codigo IS NOT NULL AND codigo <> ''
-      ORDER BY tok, (anulado IS TRUE), ccrefejofacm, codigo`,
-    [tokens],
-  );
-  for (const fila of res.rows as [string, string, string | null, string | null, string | null][]) {
-    const [tok, codigo, referencia, descripcion, color] = fila;
-    if (!esCodigoValido(codigo)) continue;
-    const lista = out.get(tok) ?? [];
-    if (lista.length >= MAX_VARIANTES) continue;
-    if (lista.some((a) => a.codigo === codigo)) continue;
-    lista.push({ codigo, referencia, descripcion, color, slots: [] });
-    out.set(tok, lista);
-  }
-  return out;
 }
 
 /**
@@ -219,19 +144,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // los que fiarse. Solo salen los que la BD reconoce Y ademas tienen foto: el
   // cliente decora exactamente lo que va a poder enseñar.
   const porToken: Record<string, ArticuloDeToken[]> = Object.create(null);
-  const tokensLimpios = [...new Set(tokens.filter((t) => FORMA_TOKEN.test(t)))];
   try {
-    const candidatos = await articulosDeTokens(tokensLimpios);
-    const sinMirar = [
-      ...new Set(
-        [...candidatos.values()].flat().map((a) => a.codigo).filter((c) => !(c in porCodigo)),
-      ),
-    ];
-    const extra = sinMirar.length > 0 ? await slotsDeFotos(sinMirar) : {};
-    for (const [tok, articulos] of candidatos) {
-      const conFoto = articulos
-        .map((a) => ({ ...a, slots: porCodigo[a.codigo] ?? extra[a.codigo] ?? [] }))
-        .filter((a) => a.slots.length > 0);
+    // Solo lo que TIENE foto: el navegador decora exactamente lo que puede
+    // enseñar. (La herramienta del LLM usa el mismo resolver sin filtrar,
+    // porque ahí interesa saber también que no la hay.)
+    for (const [tok, { articulos }] of await resolverTokens(tokens, porCodigo)) {
+      const conFoto = articulos.filter((a) => a.slots.length > 0);
       if (conFoto.length > 0) porToken[tok] = conFoto;
     }
   } catch (err) {
